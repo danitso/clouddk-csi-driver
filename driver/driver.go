@@ -21,26 +21,26 @@ const (
 
 // Driver exposes the CSI driver for Cloud.dk.
 type Driver struct {
-	driver *csicommon.CSIDriver
+	Driver *csicommon.CSIDriver
 
-	endpoint string
-	nodeID   string
+	Endpoint string
+	NodeID   string
 
-	controllerServer *ControllerServer
-	identityServer   *IdentityServer
-	nodeServer       *NodeServer
+	ControllerServer *ControllerServer
+	IdentityServer   *IdentityServer
+	NodeServer       *NodeServer
 
-	controllerCapabilities []*csi.ControllerServiceCapability
-	nodeCapabilities       []*csi.NodeServiceCapability
-	volumeCapabilities     []*csi.VolumeCapability_AccessMode
+	ControllerCapabilities []*csi.ControllerServiceCapability
+	NodeCapabilities       []*csi.NodeServiceCapability
+	VolumeCapabilities     []*csi.VolumeCapability_AccessMode
 }
 
 // NewDriver returns a CSI plugin that manages Cloud.dk block storage
 func NewDriver(nodeID, endpoint string) (*Driver, error) {
 	return &Driver{
-		endpoint: endpoint,
-		nodeID:   nodeID,
-		controllerCapabilities: []*csi.ControllerServiceCapability{
+		Endpoint: endpoint,
+		NodeID:   nodeID,
+		ControllerCapabilities: []*csi.ControllerServiceCapability{
 			&csi.ControllerServiceCapability{
 				Type: &csi.ControllerServiceCapability_Rpc{
 					Rpc: &csi.ControllerServiceCapability_RPC{
@@ -63,7 +63,7 @@ func NewDriver(nodeID, endpoint string) (*Driver, error) {
 				},
 			},
 		},
-		nodeCapabilities: []*csi.NodeServiceCapability{
+		NodeCapabilities: []*csi.NodeServiceCapability{
 			{
 				Type: &csi.NodeServiceCapability_Rpc{
 					Rpc: &csi.NodeServiceCapability_RPC{
@@ -72,7 +72,7 @@ func NewDriver(nodeID, endpoint string) (*Driver, error) {
 				},
 			},
 		},
-		volumeCapabilities: []*csi.VolumeCapability_AccessMode{
+		VolumeCapabilities: []*csi.VolumeCapability_AccessMode{
 			{
 				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
 			},
@@ -84,32 +84,32 @@ func NewDriver(nodeID, endpoint string) (*Driver, error) {
 func (d *Driver) Run() {
 	log.Printf("Running CSI driver '%s' version %s", DriverName, DriverVersion)
 
-	d.driver = csicommon.NewCSIDriver(DriverName, DriverVersion, d.nodeID)
+	d.Driver = csicommon.NewCSIDriver(DriverName, DriverVersion, d.NodeID)
 
-	if d.driver == nil {
+	if d.Driver == nil {
 		log.Fatalf("Failed to initialize CSI Driver '%s'", DriverName)
 	}
 
 	csCaps := []csi.ControllerServiceCapability_RPC_Type{}
 
-	for _, cap := range d.controllerCapabilities {
+	for _, cap := range d.ControllerCapabilities {
 		csCaps = append(csCaps, cap.Type.(*csi.ControllerServiceCapability_Rpc).Rpc.Type)
 	}
 
 	volCaps := []csi.VolumeCapability_AccessMode_Mode{}
 
-	for _, cap := range d.volumeCapabilities {
+	for _, cap := range d.VolumeCapabilities {
 		volCaps = append(volCaps, cap.Mode)
 	}
 
-	d.driver.AddControllerServiceCapabilities(csCaps)
-	d.driver.AddVolumeCapabilityAccessModes(volCaps)
+	d.Driver.AddControllerServiceCapabilities(csCaps)
+	d.Driver.AddVolumeCapabilityAccessModes(volCaps)
 
-	d.controllerServer = newControllerServer(d)
-	d.identityServer = newIdentityServer(d)
-	d.nodeServer = newNodeServer(d)
+	d.ControllerServer = newControllerServer(d)
+	d.IdentityServer = newIdentityServer(d)
+	d.NodeServer = newNodeServer(d)
 
 	s := csicommon.NewNonBlockingGRPCServer()
-	s.Start(d.endpoint, d.identityServer, d.controllerServer, d.nodeServer)
+	s.Start(d.Endpoint, d.IdentityServer, d.ControllerServer, d.NodeServer)
 	s.Wait()
 }

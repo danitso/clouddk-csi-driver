@@ -27,7 +27,7 @@ func newControllerServer(d *Driver) *ControllerServer {
 // ControllerGetCapabilities returns the capabilities of the controller service.
 func (cs *ControllerServer) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
 	return &csi.ControllerGetCapabilitiesResponse{
-		Capabilities: cs.driver.controllerCapabilities,
+		Capabilities: cs.driver.ControllerCapabilities,
 	}, nil
 }
 

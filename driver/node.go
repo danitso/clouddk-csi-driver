@@ -32,7 +32,7 @@ func (ns *NodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 // NodeGetCapabilities returns the supported capabilities of the node server.
 func (ns *NodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
 	return &csi.NodeGetCapabilitiesResponse{
-		Capabilities: ns.driver.nodeCapabilities,
+		Capabilities: ns.driver.NodeCapabilities,
 	}, nil
 }
 
@@ -42,7 +42,7 @@ func (ns *NodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetC
 // The result of this function will be used by the CO in ControllerPublishVolume.
 func (ns *NodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
 	return &csi.NodeGetInfoResponse{
-		NodeId: ns.driver.nodeID,
+		NodeId: ns.driver.NodeID,
 	}, nil
 }
 
