@@ -25,21 +25,17 @@ func newIdentityServer(d *Driver) *IdentityServer {
 
 // GetPluginCapabilities returns available capabilities of the plugin.
 func (is *IdentityServer) GetPluginCapabilities(ctx context.Context, req *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
-	resp := &csi.GetPluginCapabilitiesResponse{
+	return &csi.GetPluginCapabilitiesResponse{
 		Capabilities: is.driver.PluginCapabilities,
-	}
-
-	return resp, nil
+	}, nil
 }
 
 // GetPluginInfo returns metadata of the plugin.
 func (is *IdentityServer) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
-	resp := &csi.GetPluginInfoResponse{
+	return &csi.GetPluginInfoResponse{
 		Name:          DriverName,
 		VendorVersion: DriverVersion,
-	}
-
-	return resp, nil
+	}, nil
 }
 
 // Probe returns the health and readiness of the plugin.
