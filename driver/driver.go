@@ -32,6 +32,7 @@ type Driver struct {
 
 	ControllerCapabilities []*csi.ControllerServiceCapability
 	NodeCapabilities       []*csi.NodeServiceCapability
+	PluginCapabilities     []*csi.PluginCapability
 	VolumeCapabilities     []*csi.VolumeCapability_AccessMode
 }
 
@@ -51,13 +52,6 @@ func NewDriver(nodeID, endpoint string) (*Driver, error) {
 			&csi.ControllerServiceCapability{
 				Type: &csi.ControllerServiceCapability_Rpc{
 					Rpc: &csi.ControllerServiceCapability_RPC{
-						Type: csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
-					},
-				},
-			},
-			&csi.ControllerServiceCapability{
-				Type: &csi.ControllerServiceCapability_Rpc{
-					Rpc: &csi.ControllerServiceCapability_RPC{
 						Type: csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 					},
 				},
@@ -67,7 +61,16 @@ func NewDriver(nodeID, endpoint string) (*Driver, error) {
 			{
 				Type: &csi.NodeServiceCapability_Rpc{
 					Rpc: &csi.NodeServiceCapability_RPC{
-						Type: csi.NodeServiceCapability_RPC_UNKNOWN,
+						Type: csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
+					},
+				},
+			},
+		},
+		PluginCapabilities: []*csi.PluginCapability{
+			{
+				Type: &csi.PluginCapability_Service_{
+					Service: &csi.PluginCapability_Service{
+						Type: csi.PluginCapability_Service_CONTROLLER_SERVICE,
 					},
 				},
 			},
