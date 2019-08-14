@@ -1,0 +1,5 @@
+# Perform line feed normalization on text files.
+*           text=auto
+
+# Specify which line feed character sequence to use for specific files.
+Makefile    text    eol=lf

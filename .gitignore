@@ -1,0 +1,15 @@
+bin/
+dist/
+
+*~
+*.backup
+*.bak
+*.dll
+*.exe
+*.iml
+*.log
+*.test
+
+.*.swp
+.DS_Store
+.vscode
