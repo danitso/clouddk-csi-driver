@@ -20,6 +20,6 @@ Work in progress.
 
 ### PersistentVolume
 
-The `clouddk-csi-driver` plugin adds support for Persistent Volumes in Kubernetes.
+The `clouddk-csi-driver` plugin adds support for Persistent Volumes based on NFS.
 
-**NOTE**: Support is currently limited to `ReadWriteMany` volumes based on NFS due to lack of API support for moving disks from one server to another.
+**NOTE**: Support is currently limited to `ReadWriteMany` volumes due to lack of API support for moving disks from one server to another.
