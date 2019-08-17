@@ -22,4 +22,4 @@ Work in progress.
 
 The `clouddk-csi-driver` plugin adds support for Persistent Volumes based on NFS.
 
-**NOTE**: Support is currently limited to `ReadWriteMany` volumes due to lack of API support for moving disks from one server to another.
+**NOTE**: Support is currently limited to `ReadWriteMany` volumes due to lack of API support for moving disks from one server to another. We expect this feature to become available in the Cloud.dk API sometime in the future.
