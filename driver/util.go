@@ -12,6 +12,7 @@ import (
 
 const (
 	rtServers = "SERVERS"
+	rtVolumes = "VOLUMES"
 )
 
 // debugCloudAction writes a debug message to the log.

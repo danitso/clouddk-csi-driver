@@ -22,11 +22,13 @@ const (
 
 // Configuration stores the driver configuration.
 type Configuration struct {
-	ClientSettings *clouddk.ClientSettings
-	Endpoint       string
-	NodeID         string
-	PrivateKey     string
-	PublicKey      string
+	ClientSettings   *clouddk.ClientSettings
+	Endpoint         string
+	NodeID           string
+	PrivateKey       string
+	PublicKey        string
+	ServerMemory     int
+	ServerProcessors int
 }
 
 // Driver exposes the CSI driver for Cloud.dk.
