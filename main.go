@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"flag"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
 
@@ -122,6 +123,45 @@ func main() {
 	)
 
 	flag.Parse()
+
+	// Verify that all the required properties are defined and appear to be valid.
+	if *apiEndpointFlag == "" {
+		log.Fatalln("You must specify an API endpoint (-api-endpoint or CLOUDDK_API_ENDPOINT)")
+	}
+
+	_, err := url.ParseRequestURI(*apiEndpointFlag)
+
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	if *apiKeyFlag == "" {
+		log.Fatalln("You must specify an API key (-api-key or CLOUDDK_API_KEY)")
+	}
+
+	if *csiEndpointFlag == "" {
+		log.Fatalln("You must specify a CSI endpoint (-csi-endpoint or CLOUDDK_CSI_ENDPOINT)")
+	}
+
+	if *nodeIDFlag == "" {
+		log.Fatalln("You must specify a node id (-node-id or CLOUDDK_NODE_ID)")
+	}
+
+	if *serverMemoryFlag < 1 {
+		log.Fatalln("You must specify the minimum amount of memory per storage server (-server-memory or CLOUDDK_SERVER_MEMORY)")
+	}
+
+	if *serverProcessorsFlag < 1 {
+		log.Fatalln("You must specify the minimum number of processors per storage server (-server-processors or CLOUDDK_SERVER_PROCESSORS)")
+	}
+
+	if *sshPrivateKeyFlag == "" {
+		log.Fatalln("You must specify a private SSH key (-ssh-private-key or CLOUDDK_SSH_PRIVATE_KEY)")
+	}
+
+	if *sshPublicKeyFlag == "" {
+		log.Fatalln("You must specify a public SSH key (-ssh-public-key or CLOUDDK_SSH_PUBLIC_KEY)")
+	}
 
 	// Decode the private and public SSH keys.
 	if *sshPrivateKeyFlag != "" {
