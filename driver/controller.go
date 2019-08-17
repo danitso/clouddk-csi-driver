@@ -6,10 +6,17 @@ package driver
 
 import (
 	"context"
+	"math"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+const (
+	defaultVolumeCapacityInBytes = 17179869184
+	maximumVolumeCapacityInBytes = 8796093022208
+	minimumVolumeCapacityInBytes = 1073741824
 )
 
 // ControllerServer implements the csi.ControllerServer interface.
@@ -53,6 +60,81 @@ func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateS
 
 // CreateVolume creates a new volume from the given request. The function is idempotent.
 func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The volume name must be provided")
+	} else if req.VolumeCapabilities == nil || len(req.VolumeCapabilities) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The volume capabilities must be provided")
+	}
+
+	createForMany := false
+
+	for _, cap := range req.VolumeCapabilities {
+		supported := false
+
+		for _, supportedCap := range cs.driver.VolumeCapabilities {
+			if cap.AccessMode.Mode == supportedCap.Mode {
+				supported = true
+
+				if cap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
+					createForMany = true
+				}
+
+				break
+			}
+		}
+
+		if !supported {
+			return nil, status.Error(codes.InvalidArgument, "CreateVolume: Unsupported volume capabilities. Only MULTI_NODE_MULTI_WRITER is supported ('accessModes.ReadWriteMany' on Kubernetes)")
+		}
+	}
+
+	capacityLimit := req.CapacityRange.GetLimitBytes()
+	capacityLimitDefined := capacityLimit > 0
+	capacityRequired := req.CapacityRange.GetRequiredBytes()
+	capacityRequiredDefined := capacityRequired > 0
+
+	// Determine if no capacity is specified in which case we can use the default volume capacity.
+	if !capacityLimitDefined && !capacityRequiredDefined {
+		capacityRequired = defaultVolumeCapacityInBytes
+	}
+
+	// Determine if the required capacity is less than the minimum supported capacity.
+	if capacityRequiredDefined && capacityRequired < minimumVolumeCapacityInBytes {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The required capacity cannot be less than the minimum supported volume capacity")
+	}
+
+	// Determine if the capacity limit is less than the minimum supported capacity.
+	if capacityLimitDefined && capacityLimit < minimumVolumeCapacityInBytes {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The capacity limit cannot be less than the minimum supported volume capacity")
+	}
+
+	// Determine if the required capacity is greater than the maximum supported capacity.
+	if capacityRequiredDefined && capacityRequired > maximumVolumeCapacityInBytes {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The required capacity cannot be greater than the maximum supported volume capacity")
+	}
+
+	// Determine if the capacity limit is greater than the maximum supported capacity.
+	if capacityLimitDefined && capacityLimit > maximumVolumeCapacityInBytes {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The capacity limit cannot be greater than the maximum supported volume capacity")
+	}
+
+	// Determine if the required capacity exceeds the capacity limit.
+	if capacityRequiredDefined && capacityLimitDefined && capacityRequired > capacityLimit {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The required capacity is greater than the capacity limit")
+	}
+
+	// Create a new volume of the specified type.
+	size := int(math.Ceil(math.Max(float64(capacityRequired), float64(capacityLimit)) / 1073741824))
+
+	if createForMany {
+		return cs.CreateVolumeForMany(ctx, req, size)
+	}
+
+	return nil, status.Error(codes.Unimplemented, "")
+}
+
+// CreateVolumeForMany creates a new MULTI_NODE_MULTI_WRITER volume from the given request. The function is idempotent.
+func (cs *ControllerServer) CreateVolumeForMany(ctx context.Context, req *csi.CreateVolumeRequest, size int) (*csi.CreateVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
