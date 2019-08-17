@@ -42,7 +42,7 @@ func (ns *NodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetC
 // The result of this function will be used by the CO in ControllerPublishVolume.
 func (ns *NodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
 	return &csi.NodeGetInfoResponse{
-		NodeId: ns.driver.NodeID,
+		NodeId: ns.driver.Configuration.NodeID,
 	}, nil
 }
 

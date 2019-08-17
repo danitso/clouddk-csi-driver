@@ -8,6 +8,7 @@ import (
 	"log"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/danitso/terraform-provider-clouddk/clouddk"
 	csicommon "github.com/kubernetes-csi/drivers/pkg/csi-common"
 )
 
@@ -19,12 +20,19 @@ const (
 	DriverVersion = "0.1.0"
 )
 
+// Configuration stores the driver configuration.
+type Configuration struct {
+	ClientSettings *clouddk.ClientSettings
+	Endpoint       string
+	NodeID         string
+	PrivateKey     string
+	PublicKey      string
+}
+
 // Driver exposes the CSI driver for Cloud.dk.
 type Driver struct {
-	Driver *csicommon.CSIDriver
-
-	Endpoint string
-	NodeID   string
+	Configuration *Configuration
+	Driver        *csicommon.CSIDriver
 
 	ControllerServer *ControllerServer
 	IdentityServer   *IdentityServer
@@ -37,10 +45,9 @@ type Driver struct {
 }
 
 // NewDriver returns a CSI plugin that manages Cloud.dk block storage
-func NewDriver(nodeID, endpoint string) (*Driver, error) {
+func NewDriver(c *Configuration) (*Driver, error) {
 	return &Driver{
-		Endpoint: endpoint,
-		NodeID:   nodeID,
+		Configuration: c,
 		ControllerCapabilities: []*csi.ControllerServiceCapability{
 			&csi.ControllerServiceCapability{
 				Type: &csi.ControllerServiceCapability_Rpc{
@@ -87,7 +94,7 @@ func NewDriver(nodeID, endpoint string) (*Driver, error) {
 func (d *Driver) Run() {
 	log.Printf("Running CSI driver '%s' version %s", DriverName, DriverVersion)
 
-	d.Driver = csicommon.NewCSIDriver(DriverName, DriverVersion, d.NodeID)
+	d.Driver = csicommon.NewCSIDriver(DriverName, DriverVersion, d.Configuration.NodeID)
 
 	if d.Driver == nil {
 		log.Fatalf("Failed to initialize CSI Driver '%s'", DriverName)
@@ -113,6 +120,6 @@ func (d *Driver) Run() {
 	d.NodeServer = newNodeServer(d)
 
 	s := csicommon.NewNonBlockingGRPCServer()
-	s.Start(d.Endpoint, d.IdentityServer, d.ControllerServer, d.NodeServer)
+	s.Start(d.Configuration.Endpoint, d.IdentityServer, d.ControllerServer, d.NodeServer)
 	s.Wait()
 }
