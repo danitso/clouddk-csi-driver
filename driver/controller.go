@@ -75,7 +75,10 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 			if cap.AccessMode.Mode == supportedCap.AccessMode.Mode {
 				supported = true
 
-				if cap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
+				switch cap.AccessMode.Mode {
+				case csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+					csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
+					csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER:
 					createVolumeForMany = true
 				}
 
