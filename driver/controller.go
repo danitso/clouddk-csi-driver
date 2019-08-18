@@ -66,7 +66,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The volume capabilities must be provided")
 	}
 
-	createForMany := false
+	createVolumeForMany := false
 
 	for _, cap := range req.VolumeCapabilities {
 		supported := false
@@ -76,7 +76,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 				supported = true
 
 				if cap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
-					createForMany = true
+					createVolumeForMany = true
 				}
 
 				break
@@ -84,7 +84,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		}
 
 		if !supported {
-			return nil, status.Error(codes.InvalidArgument, "CreateVolume: Unsupported volume capabilities. Only MULTI_NODE_MULTI_WRITER is supported ('accessModes.ReadWriteMany' on Kubernetes)")
+			return nil, status.Error(codes.InvalidArgument, "CreateVolume: Unsupported volume capabilities")
 		}
 	}
 
@@ -126,7 +126,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	// Create a new volume of the specified type.
 	size := int(math.Ceil(math.Max(float64(capacityRequired), float64(capacityLimit)) / 1073741824))
 
-	if createForMany {
+	if createVolumeForMany {
 		return cs.CreateVolumeForMany(ctx, req, size)
 	}
 
@@ -166,5 +166,27 @@ func (cs *ControllerServer) ListVolumes(ctx context.Context, req *csi.ListVolume
 
 // ValidateVolumeCapabilities checks whether the volume capabilities requested are supported.
 func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "ValidateVolumeCapabilities: The volume ID must be provided")
+	} else if req.VolumeCapabilities == nil || len(req.VolumeCapabilities) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "ValidateVolumeCapabilities: The volume capabilities must be provided")
+	}
+
+	confirmedCaps := []*csi.VolumeCapability{}
+
+	for _, cap := range req.VolumeCapabilities {
+		for _, supportedCap := range cs.driver.VolumeCapabilities {
+			if cap.AccessMode.Mode == supportedCap.Mode {
+				confirmedCaps = append(confirmedCaps, cap)
+
+				break
+			}
+		}
+	}
+
+	return &csi.ValidateVolumeCapabilitiesResponse{
+		Confirmed: &csi.ValidateVolumeCapabilitiesResponse_Confirmed{
+			VolumeCapabilities: confirmedCaps,
+		},
+	}, nil
 }
