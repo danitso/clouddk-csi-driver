@@ -100,27 +100,27 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 
 	// Determine if the required capacity is less than the minimum supported capacity.
 	if capacityRequiredDefined && capacityRequired < minimumVolumeCapacityInBytes {
-		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The required capacity cannot be less than the minimum supported volume capacity")
+		return nil, status.Error(codes.OutOfRange, "CreateVolume: The required capacity cannot be less than the minimum supported volume capacity")
 	}
 
 	// Determine if the capacity limit is less than the minimum supported capacity.
 	if capacityLimitDefined && capacityLimit < minimumVolumeCapacityInBytes {
-		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The capacity limit cannot be less than the minimum supported volume capacity")
+		return nil, status.Error(codes.OutOfRange, "CreateVolume: The capacity limit cannot be less than the minimum supported volume capacity")
 	}
 
 	// Determine if the required capacity is greater than the maximum supported capacity.
 	if capacityRequiredDefined && capacityRequired > maximumVolumeCapacityInBytes {
-		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The required capacity cannot be greater than the maximum supported volume capacity")
+		return nil, status.Error(codes.OutOfRange, "CreateVolume: The required capacity cannot be greater than the maximum supported volume capacity")
 	}
 
 	// Determine if the capacity limit is greater than the maximum supported capacity.
 	if capacityLimitDefined && capacityLimit > maximumVolumeCapacityInBytes {
-		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The capacity limit cannot be greater than the maximum supported volume capacity")
+		return nil, status.Error(codes.OutOfRange, "CreateVolume: The capacity limit cannot be greater than the maximum supported volume capacity")
 	}
 
 	// Determine if the required capacity exceeds the capacity limit.
 	if capacityRequiredDefined && capacityLimitDefined && capacityRequired > capacityLimit {
-		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The required capacity is greater than the capacity limit")
+		return nil, status.Error(codes.OutOfRange, "CreateVolume: The required capacity is greater than the capacity limit")
 	}
 
 	// Create a new volume of the specified type.
