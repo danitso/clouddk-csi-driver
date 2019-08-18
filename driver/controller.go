@@ -184,6 +184,10 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 		}
 	}
 
+	if len(confirmedCaps) != len(req.VolumeCapabilities) {
+		return nil, status.Error(codes.InvalidArgument, "ValidateVolumeCapabilities: Unsupported volume capabilities")
+	}
+
 	return &csi.ValidateVolumeCapabilitiesResponse{
 		Confirmed: &csi.ValidateVolumeCapabilitiesResponse_Confirmed{
 			VolumeCapabilities: confirmedCaps,
