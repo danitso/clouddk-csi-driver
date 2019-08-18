@@ -72,7 +72,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		supported := false
 
 		for _, supportedCap := range cs.driver.VolumeCapabilities {
-			if cap.AccessMode.Mode == supportedCap.Mode {
+			if cap.AccessMode.Mode == supportedCap.AccessMode.Mode {
 				supported = true
 
 				if cap.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER {
@@ -176,7 +176,7 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 
 	for _, cap := range req.VolumeCapabilities {
 		for _, supportedCap := range cs.driver.VolumeCapabilities {
-			if cap.AccessMode.Mode == supportedCap.Mode {
+			if cap.AccessMode.Mode == supportedCap.AccessMode.Mode {
 				confirmedCaps = append(confirmedCaps, cap)
 
 				break

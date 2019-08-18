@@ -43,7 +43,7 @@ type Driver struct {
 	ControllerCapabilities []*csi.ControllerServiceCapability
 	NodeCapabilities       []*csi.NodeServiceCapability
 	PluginCapabilities     []*csi.PluginCapability
-	VolumeCapabilities     []*csi.VolumeCapability_AccessMode
+	VolumeCapabilities     []*csi.VolumeCapability
 }
 
 // NewDriver returns a CSI plugin that manages Cloud.dk block storage
@@ -84,9 +84,11 @@ func NewDriver(c *Configuration) (*Driver, error) {
 				},
 			},
 		},
-		VolumeCapabilities: []*csi.VolumeCapability_AccessMode{
+		VolumeCapabilities: []*csi.VolumeCapability{
 			{
-				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+				},
 			},
 		},
 	}, nil
@@ -111,7 +113,7 @@ func (d *Driver) Run() {
 	volCaps := []csi.VolumeCapability_AccessMode_Mode{}
 
 	for _, cap := range d.VolumeCapabilities {
-		volCaps = append(volCaps, cap.Mode)
+		volCaps = append(volCaps, cap.AccessMode.Mode)
 	}
 
 	d.Driver.AddControllerServiceCapabilities(csCaps)
