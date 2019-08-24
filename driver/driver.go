@@ -35,6 +35,7 @@ type Configuration struct {
 type Driver struct {
 	Configuration *Configuration
 	Driver        *csicommon.CSIDriver
+	PackageID     *string
 
 	ControllerServer *ControllerServer
 	IdentityServer   *IdentityServer
@@ -48,8 +49,15 @@ type Driver struct {
 
 // NewDriver returns a CSI plugin that manages Cloud.dk block storage
 func NewDriver(c *Configuration) (*Driver, error) {
+	packageID, err := getPackageID(c.ServerMemory, c.ServerProcessors)
+
+	if err != nil {
+		return nil, err
+	}
+
 	return &Driver{
 		Configuration: c,
+		PackageID:     packageID,
 		ControllerCapabilities: []*csi.ControllerServiceCapability{
 			&csi.ControllerServiceCapability{
 				Type: &csi.ControllerServiceCapability_Rpc{

@@ -149,7 +149,7 @@ func (cs *ControllerServer) CreateVolumeBlockStorage(ctx context.Context, req *c
 
 // CreateVolumeNetworkStorage creates new network storage from the given request. The function is idempotent.
 func (cs *ControllerServer) CreateVolumeNetworkStorage(ctx context.Context, req *csi.CreateVolumeRequest, size int) (*csi.CreateVolumeResponse, error) {
-	ns, err := createNetworkStorage(cs.driver, size)
+	ns, err := createNetworkStorage(cs.driver, req.Name, size)
 
 	if err != nil {
 		return nil, status.Error(codes.Internal, "CreateVolume: "+err.Error())
@@ -198,7 +198,7 @@ func (cs *ControllerServer) DeleteVolumeBlockStorage(ctx context.Context, req *c
 
 // DeleteVolumeNetworkStorage deletes the given network storage. The function is idempotent.
 func (cs *ControllerServer) DeleteVolumeNetworkStorage(ctx context.Context, req *csi.DeleteVolumeRequest, id string) (*csi.DeleteVolumeResponse, error) {
-	ns, notFound, err := loadNetworkStorage(cs.driver, req.VolumeId)
+	ns, notFound, err := loadNetworkStorage(cs.driver, id)
 
 	if err != nil {
 		if notFound {
@@ -208,13 +208,9 @@ func (cs *ControllerServer) DeleteVolumeNetworkStorage(ctx context.Context, req 
 		return nil, status.Error(codes.Internal, "DeleteVolume: "+err.Error())
 	}
 
-	notFound, err = ns.Delete()
+	err = ns.Delete()
 
 	if err != nil {
-		if notFound {
-			return &csi.DeleteVolumeResponse{}, nil
-		}
-
 		return nil, status.Error(codes.Internal, "DeleteVolume: "+err.Error())
 	}
 
