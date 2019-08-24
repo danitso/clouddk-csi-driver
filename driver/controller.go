@@ -6,6 +6,7 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strings"
 
@@ -67,6 +68,8 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The volume name must be provided")
 	} else if req.VolumeCapabilities == nil || len(req.VolumeCapabilities) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The volume capabilities must be provided")
+	} else if req.VolumeContentSource != nil {
+		return nil, status.Error(codes.InvalidArgument, "CreateVolume: Volume sources are not supported")
 	}
 
 	createNetworkStorage := false
@@ -146,7 +149,18 @@ func (cs *ControllerServer) CreateVolumeBlockStorage(ctx context.Context, req *c
 
 // CreateVolumeNetworkStorage creates new network storage from the given request. The function is idempotent.
 func (cs *ControllerServer) CreateVolumeNetworkStorage(ctx context.Context, req *csi.CreateVolumeRequest, size int) (*csi.CreateVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "CreateVolume: Network storage has not been implemented")
+	ns, err := createNetworkStorage(cs.driver, size)
+
+	if err != nil {
+		return nil, status.Error(codes.Internal, "CreateVolume: "+err.Error())
+	}
+
+	return &csi.CreateVolumeResponse{
+		Volume: &csi.Volume{
+			CapacityBytes: int64(ns.Size * 1073741824),
+			VolumeId:      fmt.Sprintf("%s-%s", volumePrefixNetworkStorage, ns.ID),
+		},
+	}, nil
 }
 
 // DeleteSnapshot will be called by the CO to delete a snapshot.
@@ -169,22 +183,42 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 
 	switch volumeInfo[0] {
 	case volumePrefixBlockStorage:
-		return cs.DeleteVolumeBlockStorage(ctx, req)
+		return cs.DeleteVolumeBlockStorage(ctx, req, volumeInfo[1])
 	case volumePrefixNetworkStorage:
-		return cs.DeleteVolumeNetworkStorage(ctx, req)
+		return cs.DeleteVolumeNetworkStorage(ctx, req, volumeInfo[1])
 	default:
 		return nil, status.Error(codes.InvalidArgument, "DeleteVolume: Invalid volume type")
 	}
 }
 
 // DeleteVolumeBlockStorage deletes the given block storage. The function is idempotent.
-func (cs *ControllerServer) DeleteVolumeBlockStorage(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
+func (cs *ControllerServer) DeleteVolumeBlockStorage(ctx context.Context, req *csi.DeleteVolumeRequest, id string) (*csi.DeleteVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "DeleteVolume: Block storage has not been implemented")
 }
 
 // DeleteVolumeNetworkStorage deletes the given network storage. The function is idempotent.
-func (cs *ControllerServer) DeleteVolumeNetworkStorage(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "DeleteVolume: Network storage has not been implemented")
+func (cs *ControllerServer) DeleteVolumeNetworkStorage(ctx context.Context, req *csi.DeleteVolumeRequest, id string) (*csi.DeleteVolumeResponse, error) {
+	ns, notFound, err := loadNetworkStorage(cs.driver, req.VolumeId)
+
+	if err != nil {
+		if notFound {
+			return &csi.DeleteVolumeResponse{}, nil
+		}
+
+		return nil, status.Error(codes.Internal, "DeleteVolume: "+err.Error())
+	}
+
+	notFound, err = ns.Delete()
+
+	if err != nil {
+		if notFound {
+			return &csi.DeleteVolumeResponse{}, nil
+		}
+
+		return nil, status.Error(codes.Internal, "DeleteVolume: "+err.Error())
+	}
+
+	return &csi.DeleteVolumeResponse{}, nil
 }
 
 // GetCapacity returns the capacity of the storage pool.
@@ -231,6 +265,16 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 			},
 		}
 	case volumePrefixNetworkStorage:
+		_, notFound, err := loadNetworkStorage(cs.driver, volumeInfo[1])
+
+		if err != nil {
+			if notFound {
+				return nil, status.Error(codes.NotFound, "ValidateVolumeCapabilities: The specified volume does not exist")
+			}
+
+			return nil, status.Error(codes.Internal, "ValidateVolumeCapabilities: "+err.Error())
+		}
+
 		supportedCaps = []*csi.VolumeCapability{
 			{
 				AccessMode: &csi.VolumeCapability_AccessMode{
