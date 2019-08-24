@@ -7,6 +7,7 @@ package driver
 import (
 	"context"
 	"math"
+	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -17,6 +18,8 @@ const (
 	defaultVolumeCapacityInBytes = 17179869184
 	maximumVolumeCapacityInBytes = 8796093022208
 	minimumVolumeCapacityInBytes = 1073741824
+	volumePrefixBlockStorage     = "bs"
+	volumePrefixNetworkStorage   = "ns"
 )
 
 // ControllerServer implements the csi.ControllerServer interface.
@@ -66,7 +69,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The volume capabilities must be provided")
 	}
 
-	createVolumeForMany := false
+	createNetworkStorage := false
 
 	for _, cap := range req.VolumeCapabilities {
 		supported := false
@@ -79,7 +82,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 				case csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
 					csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
 					csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER:
-					createVolumeForMany = true
+					createNetworkStorage = true
 				}
 
 				break
@@ -129,16 +132,21 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	// Create a new volume of the specified type.
 	size := int(math.Ceil(math.Max(float64(capacityRequired), float64(capacityLimit)) / 1073741824))
 
-	if createVolumeForMany {
-		return cs.CreateVolumeForMany(ctx, req, size)
+	if createNetworkStorage {
+		return cs.CreateVolumeNetworkStorage(ctx, req, size)
 	}
 
-	return nil, status.Error(codes.Unimplemented, "")
+	return cs.CreateVolumeBlockStorage(ctx, req, size)
 }
 
-// CreateVolumeForMany creates a new MULTI_NODE_MULTI_WRITER volume from the given request. The function is idempotent.
-func (cs *ControllerServer) CreateVolumeForMany(ctx context.Context, req *csi.CreateVolumeRequest, size int) (*csi.CreateVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+// CreateVolumeBlockStorage creates new block storage from the given request. The function is idempotent.
+func (cs *ControllerServer) CreateVolumeBlockStorage(ctx context.Context, req *csi.CreateVolumeRequest, size int) (*csi.CreateVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "CreateVolume: Block storage has not been implemented")
+}
+
+// CreateVolumeNetworkStorage creates new network storage from the given request. The function is idempotent.
+func (cs *ControllerServer) CreateVolumeNetworkStorage(ctx context.Context, req *csi.CreateVolumeRequest, size int) (*csi.CreateVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "CreateVolume: Network storage has not been implemented")
 }
 
 // DeleteSnapshot will be called by the CO to delete a snapshot.
@@ -148,7 +156,35 @@ func (cs *ControllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteS
 
 // DeleteVolume deletes the given volume. The function is idempotent.
 func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "DeleteVolume: The volume ID must be provided")
+	}
+
+	// Separate the concatenated volume type and ID and attempt to delete the volume.
+	volumeInfo := strings.Split(req.VolumeId, "-")
+
+	if len(volumeInfo) != 2 {
+		return nil, status.Error(codes.InvalidArgument, "DeleteVolume: Invalid volume ID")
+	}
+
+	switch volumeInfo[0] {
+	case volumePrefixBlockStorage:
+		return cs.DeleteVolumeBlockStorage(ctx, req)
+	case volumePrefixNetworkStorage:
+		return cs.DeleteVolumeNetworkStorage(ctx, req)
+	default:
+		return nil, status.Error(codes.InvalidArgument, "DeleteVolume: Invalid volume type")
+	}
+}
+
+// DeleteVolumeBlockStorage deletes the given block storage. The function is idempotent.
+func (cs *ControllerServer) DeleteVolumeBlockStorage(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "DeleteVolume: Block storage has not been implemented")
+}
+
+// DeleteVolumeNetworkStorage deletes the given network storage. The function is idempotent.
+func (cs *ControllerServer) DeleteVolumeNetworkStorage(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "DeleteVolume: Network storage has not been implemented")
 }
 
 // GetCapacity returns the capacity of the storage pool.
@@ -175,10 +211,42 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 		return nil, status.Error(codes.InvalidArgument, "ValidateVolumeCapabilities: The volume capabilities must be provided")
 	}
 
+	// Separate the concatenated volume type and ID.
+	volumeInfo := strings.Split(req.VolumeId, "-")
+
+	if len(volumeInfo) != 2 {
+		return nil, status.Error(codes.InvalidArgument, "ValidateVolumeCapabilities: Invalid volume ID")
+	}
+
+	// Determine the volume capabilities based on the volume type.
+	var supportedCaps []*csi.VolumeCapability
+
+	switch volumeInfo[0] {
+	case volumePrefixBlockStorage:
+		supportedCaps = []*csi.VolumeCapability{
+			{
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				},
+			},
+		}
+	case volumePrefixNetworkStorage:
+		supportedCaps = []*csi.VolumeCapability{
+			{
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+				},
+			},
+		}
+	default:
+		return nil, status.Error(codes.InvalidArgument, "ValidateVolumeCapabilities: Invalid volume type")
+	}
+
+	// Verify that the requested volume capabilities match the supported capabilities.
 	confirmedCaps := []*csi.VolumeCapability{}
 
 	for _, cap := range req.VolumeCapabilities {
-		for _, supportedCap := range cs.driver.VolumeCapabilities {
+		for _, supportedCap := range supportedCaps {
 			if cap.AccessMode.Mode == supportedCap.AccessMode.Mode {
 				confirmedCaps = append(confirmedCaps, cap)
 
