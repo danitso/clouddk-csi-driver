@@ -37,7 +37,6 @@ func (ns *NodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetC
 }
 
 // NodeGetInfo returns the supported capabilities of the node server.
-// This should eventually return the droplet ID if possible.
 // This is used so the CO knows where to place the workload.
 // The result of this function will be used by the CO in ControllerPublishVolume.
 func (ns *NodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
