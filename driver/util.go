@@ -5,11 +5,14 @@
 package driver
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"math"
 	"math/rand"
 	"strings"
+
+	"github.com/container-storage-interface/spec/lib/go/csi"
 )
 
 const (
@@ -107,6 +110,46 @@ func getRandomPassword(length int) string {
 	}
 
 	return b.String()
+}
+
+// parseCapacity parses a capacity range and returns the capacity in gigabytes.
+func parseCapacity(cr *csi.CapacityRange) (capacity int, err error) {
+	capacityLimit := cr.GetLimitBytes()
+	capacityLimitDefined := capacityLimit > 0
+	capacityRequired := cr.GetRequiredBytes()
+	capacityRequiredDefined := capacityRequired > 0
+
+	// Determine if no capacity is specified in which case we can use the default volume capacity.
+	if !capacityLimitDefined && !capacityRequiredDefined {
+		capacityRequired = defaultVolumeCapacityInBytes
+	}
+
+	// Determine if the required capacity is less than the minimum supported capacity.
+	if capacityRequiredDefined && capacityRequired < minimumVolumeCapacityInBytes {
+		return 0, errors.New("The required capacity cannot be less than the minimum supported volume capacity")
+	}
+
+	// Determine if the capacity limit is less than the minimum supported capacity.
+	if capacityLimitDefined && capacityLimit < minimumVolumeCapacityInBytes {
+		return 0, errors.New("The capacity limit cannot be less than the minimum supported volume capacity")
+	}
+
+	// Determine if the required capacity is greater than the maximum supported capacity.
+	if capacityRequiredDefined && capacityRequired > maximumVolumeCapacityInBytes {
+		return 0, errors.New("The required capacity cannot be greater than the maximum supported volume capacity")
+	}
+
+	// Determine if the capacity limit is greater than the maximum supported capacity.
+	if capacityLimitDefined && capacityLimit > maximumVolumeCapacityInBytes {
+		return 0, errors.New("The capacity limit cannot be greater than the maximum supported volume capacity")
+	}
+
+	// Determine if the required capacity exceeds the capacity limit.
+	if capacityRequiredDefined && capacityLimitDefined && capacityRequired > capacityLimit {
+		return 0, errors.New("The required capacity is greater than the capacity limit")
+	}
+
+	return int(math.Ceil(math.Max(float64(capacityRequired), float64(capacityLimit)) / 1073741824)), nil
 }
 
 // trimProviderID removes the provider name from the id.

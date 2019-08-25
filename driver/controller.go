@@ -7,7 +7,6 @@ package driver
 import (
 	"context"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -44,32 +43,46 @@ func (cs *ControllerServer) ControllerGetCapabilities(ctx context.Context, req *
 
 // ControllerExpandVolume expands the given volume.
 func (cs *ControllerServer) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented, "Volume expansion is not supported")
 }
 
 // ControllerPublishVolume attaches the given volume to the node.
 func (cs *ControllerServer) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
+	if req.NodeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "The node ID must be provided")
+	} else if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "The volume ID must be provided")
+	} else if req.Readonly {
+		return nil, status.Error(codes.InvalidArgument, "Publishing volumes as read-only is not supported")
+	}
+
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 // ControllerUnpublishVolume deattaches the given volume from the node.
 func (cs *ControllerServer) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
+	if req.NodeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "The node ID must be provided")
+	} else if req.VolumeId == "" {
+		return nil, status.Error(codes.InvalidArgument, "The volume ID must be provided")
+	}
+
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 // CreateSnapshot will be called by the CO to create a new snapshot from a source volume on behalf of a user.
 func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented, "Snapshots are not supported")
 }
 
 // CreateVolume creates a new volume from the given request. The function is idempotent.
 func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	if req.Name == "" {
-		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The volume name must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The volume name must be provided")
 	} else if req.VolumeCapabilities == nil || len(req.VolumeCapabilities) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "CreateVolume: The volume capabilities must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The volume capabilities must be provided")
 	} else if req.VolumeContentSource != nil {
-		return nil, status.Error(codes.InvalidArgument, "CreateVolume: Volume sources are not supported")
+		return nil, status.Error(codes.InvalidArgument, "Volume sources are not supported")
 	}
 
 	createNetworkStorage := false
@@ -93,48 +106,17 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		}
 
 		if !supported {
-			return nil, status.Error(codes.InvalidArgument, "CreateVolume: Unsupported volume capabilities")
+			return nil, status.Error(codes.InvalidArgument, "Unsupported volume capabilities")
 		}
 	}
 
-	capacityLimit := req.CapacityRange.GetLimitBytes()
-	capacityLimitDefined := capacityLimit > 0
-	capacityRequired := req.CapacityRange.GetRequiredBytes()
-	capacityRequiredDefined := capacityRequired > 0
+	size, err := parseCapacity(req.CapacityRange)
 
-	// Determine if no capacity is specified in which case we can use the default volume capacity.
-	if !capacityLimitDefined && !capacityRequiredDefined {
-		capacityRequired = defaultVolumeCapacityInBytes
-	}
-
-	// Determine if the required capacity is less than the minimum supported capacity.
-	if capacityRequiredDefined && capacityRequired < minimumVolumeCapacityInBytes {
-		return nil, status.Error(codes.OutOfRange, "CreateVolume: The required capacity cannot be less than the minimum supported volume capacity")
-	}
-
-	// Determine if the capacity limit is less than the minimum supported capacity.
-	if capacityLimitDefined && capacityLimit < minimumVolumeCapacityInBytes {
-		return nil, status.Error(codes.OutOfRange, "CreateVolume: The capacity limit cannot be less than the minimum supported volume capacity")
-	}
-
-	// Determine if the required capacity is greater than the maximum supported capacity.
-	if capacityRequiredDefined && capacityRequired > maximumVolumeCapacityInBytes {
-		return nil, status.Error(codes.OutOfRange, "CreateVolume: The required capacity cannot be greater than the maximum supported volume capacity")
-	}
-
-	// Determine if the capacity limit is greater than the maximum supported capacity.
-	if capacityLimitDefined && capacityLimit > maximumVolumeCapacityInBytes {
-		return nil, status.Error(codes.OutOfRange, "CreateVolume: The capacity limit cannot be greater than the maximum supported volume capacity")
-	}
-
-	// Determine if the required capacity exceeds the capacity limit.
-	if capacityRequiredDefined && capacityLimitDefined && capacityRequired > capacityLimit {
-		return nil, status.Error(codes.OutOfRange, "CreateVolume: The required capacity is greater than the capacity limit")
+	if err != nil {
+		return nil, status.Error(codes.OutOfRange, err.Error())
 	}
 
 	// Create a new volume of the specified type.
-	size := int(math.Ceil(math.Max(float64(capacityRequired), float64(capacityLimit)) / 1073741824))
-
 	if createNetworkStorage {
 		return cs.CreateVolumeNetworkStorage(ctx, req, size)
 	}
@@ -144,7 +126,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 
 // CreateVolumeBlockStorage creates new block storage from the given request. The function is idempotent.
 func (cs *ControllerServer) CreateVolumeBlockStorage(ctx context.Context, req *csi.CreateVolumeRequest, size int) (*csi.CreateVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "CreateVolume: Block storage has not been implemented")
+	return nil, status.Error(codes.Unimplemented, "Block storage has not been implemented")
 }
 
 // CreateVolumeNetworkStorage creates new network storage from the given request. The function is idempotent.
@@ -153,10 +135,10 @@ func (cs *ControllerServer) CreateVolumeNetworkStorage(ctx context.Context, req 
 
 	if err != nil {
 		if exists {
-			return nil, status.Error(codes.AlreadyExists, "CreateVolume: The volume already exists")
+			return nil, status.Error(codes.AlreadyExists, "The volume already exists")
 		}
 
-		return nil, status.Error(codes.Internal, "CreateVolume: "+err.Error())
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	return &csi.CreateVolumeResponse{
@@ -169,20 +151,20 @@ func (cs *ControllerServer) CreateVolumeNetworkStorage(ctx context.Context, req 
 
 // DeleteSnapshot will be called by the CO to delete a snapshot.
 func (cs *ControllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented, "Snapshots are not supported")
 }
 
 // DeleteVolume deletes the given volume. The function is idempotent.
 func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
 	if req.VolumeId == "" {
-		return nil, status.Error(codes.InvalidArgument, "DeleteVolume: The volume ID must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The volume ID must be provided")
 	}
 
 	// Separate the concatenated volume type and ID and attempt to delete the volume.
 	volumeInfo := strings.Split(req.VolumeId, "-")
 
 	if len(volumeInfo) != 2 {
-		return nil, status.Error(codes.InvalidArgument, "DeleteVolume: Invalid volume ID")
+		return nil, status.Error(codes.InvalidArgument, "Invalid volume ID")
 	}
 
 	switch volumeInfo[0] {
@@ -191,13 +173,13 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 	case volumePrefixNetworkStorage:
 		return cs.DeleteVolumeNetworkStorage(ctx, req, volumeInfo[1])
 	default:
-		return nil, status.Error(codes.InvalidArgument, "DeleteVolume: Invalid volume type")
+		return nil, status.Error(codes.InvalidArgument, "Invalid volume type")
 	}
 }
 
 // DeleteVolumeBlockStorage deletes the given block storage. The function is idempotent.
 func (cs *ControllerServer) DeleteVolumeBlockStorage(ctx context.Context, req *csi.DeleteVolumeRequest, id string) (*csi.DeleteVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "DeleteVolume: Block storage has not been implemented")
+	return nil, status.Error(codes.Unimplemented, "Block storage has not been implemented")
 }
 
 // DeleteVolumeNetworkStorage deletes the given network storage. The function is idempotent.
@@ -209,13 +191,13 @@ func (cs *ControllerServer) DeleteVolumeNetworkStorage(ctx context.Context, req 
 			return &csi.DeleteVolumeResponse{}, nil
 		}
 
-		return nil, status.Error(codes.Internal, "DeleteVolume: "+err.Error())
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	err = ns.Delete()
 
 	if err != nil {
-		return nil, status.Error(codes.Internal, "DeleteVolume: "+err.Error())
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	return &csi.DeleteVolumeResponse{}, nil
@@ -223,33 +205,33 @@ func (cs *ControllerServer) DeleteVolumeNetworkStorage(ctx context.Context, req 
 
 // GetCapacity returns the capacity of the storage pool.
 func (cs *ControllerServer) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (*csi.GetCapacityResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented, "Capacity queries are not supported")
 }
 
 // ListSnapshots returns the information about all snapshots on the storage system within the given parameters regardless of how they were created.
 // ListSnapshots shold not list a snapshot that is being created but has not been cut successfully yet.
 func (cs *ControllerServer) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented, "Snapshots are not supported")
 }
 
 // ListVolumes returns a list of all requested volumes.
 func (cs *ControllerServer) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+	return nil, status.Error(codes.Unimplemented, "Volume listing is not supported")
 }
 
 // ValidateVolumeCapabilities checks whether the volume capabilities requested are supported.
 func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
 	if req.VolumeId == "" {
-		return nil, status.Error(codes.InvalidArgument, "ValidateVolumeCapabilities: The volume ID must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The volume ID must be provided")
 	} else if req.VolumeCapabilities == nil || len(req.VolumeCapabilities) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "ValidateVolumeCapabilities: The volume capabilities must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The volume capabilities must be provided")
 	}
 
 	// Separate the concatenated volume type and ID.
 	volumeInfo := strings.Split(req.VolumeId, "-")
 
 	if len(volumeInfo) != 2 {
-		return nil, status.Error(codes.InvalidArgument, "ValidateVolumeCapabilities: Invalid volume ID")
+		return nil, status.Error(codes.InvalidArgument, "Invalid volume ID")
 	}
 
 	// Determine the volume capabilities based on the volume type.
@@ -269,10 +251,10 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 
 		if err != nil {
 			if notFound {
-				return nil, status.Error(codes.NotFound, "ValidateVolumeCapabilities: The specified volume does not exist")
+				return nil, status.Error(codes.NotFound, "The specified volume does not exist")
 			}
 
-			return nil, status.Error(codes.Internal, "ValidateVolumeCapabilities: "+err.Error())
+			return nil, status.Error(codes.Internal, err.Error())
 		}
 
 		supportedCaps = []*csi.VolumeCapability{
@@ -283,7 +265,7 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 			},
 		}
 	default:
-		return nil, status.Error(codes.InvalidArgument, "ValidateVolumeCapabilities: Invalid volume type")
+		return nil, status.Error(codes.InvalidArgument, "Invalid volume type")
 	}
 
 	// Verify that the requested volume capabilities match the supported capabilities.
@@ -300,7 +282,7 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 	}
 
 	if len(confirmedCaps) != len(req.VolumeCapabilities) {
-		return nil, status.Error(codes.InvalidArgument, "ValidateVolumeCapabilities: Unsupported volume capabilities")
+		return nil, status.Error(codes.InvalidArgument, "Unsupported volume capabilities")
 	}
 
 	return &csi.ValidateVolumeCapabilitiesResponse{
