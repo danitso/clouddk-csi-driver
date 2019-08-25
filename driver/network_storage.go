@@ -83,21 +83,19 @@ var (
 		DATA_DEVICE="/dev/vdb"
 		DATA_DIRECTORY="/mnt/data"
 
-		# Format the device.
-		if [[ "$(blkid -s TYPE -o value "$DATA_DEVICE")" == "" ]]; then
-			mkfs -t ext4 "$DATA_DEVICE"
-		fi
-
-		# Ensure that the device is mounted when the system is booted.
-		if ! grep -q "$DATA_DIRECTORY" /etc/fstab; then
-			data_device_uuid="$(blkid -s UUID -o value "$DATA_DEVICE")"
-
-			sed --in-place "/${DATA_DEVICE//'/'/'\/'}/d" /etc/fstab
-			echo "UUID=${data_device_uuid} ${DATA_DIRECTORY} ext4 defaults,noatime,nodiratime,nofail 0 2" >> /etc/fstab
-		fi
-
 		# Ensure that the device is mounted.
 		if ! mountpoint -q "$DATA_DIRECTORY"; then
+			if [[ "$(blkid -s TYPE -o value "$DATA_DEVICE")" == "" ]]; then
+				mkfs -t ext4 "$DATA_DEVICE"
+			fi
+
+			if ! grep -q "$DATA_DIRECTORY" /etc/fstab; then
+				data_device_uuid="$(blkid -s UUID -o value "$DATA_DEVICE")"
+
+				sed --in-place "/${DATA_DEVICE//'/'/'\/'}/d" /etc/fstab
+				echo "UUID=${data_device_uuid} ${DATA_DIRECTORY} ext4 defaults,noatime,nodiratime,nofail 0 2" >> /etc/fstab
+			fi
+
 			mkdir -p "$DATA_DIRECTORY"
 			mount "$DATA_DEVICE" "$DATA_DIRECTORY"
 			chown -R nobody:nogroup "$DATA_DIRECTORY"
