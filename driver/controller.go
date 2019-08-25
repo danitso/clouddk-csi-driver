@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	publishInfoServerID        = DriverName + "/server-id"
 	volumePrefixBlockStorage   = "bs"
 	volumePrefixNetworkStorage = "ns"
 )
@@ -53,7 +54,41 @@ func (cs *ControllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 		return nil, status.Error(codes.InvalidArgument, "Publishing volumes as read-only is not supported")
 	}
 
-	return nil, status.Error(codes.Unimplemented, "")
+	// Separate the concatenated volume type and ID and attempt to grant the node access to the volume.
+	volumeInfo := strings.Split(req.VolumeId, "-")
+
+	if len(volumeInfo) != 2 {
+		return nil, status.Error(codes.InvalidArgument, "Invalid volume ID")
+	}
+
+	switch volumeInfo[0] {
+	case volumePrefixBlockStorage:
+		return nil, status.Error(codes.Unimplemented, "Block storage has not been implemented")
+	case volumePrefixNetworkStorage:
+		ns, notFound, err := loadNetworkStorage(cs.driver, volumeInfo[1])
+
+		if err != nil {
+			if notFound {
+				return nil, status.Error(codes.NotFound, "The specified volume does not exist")
+			}
+
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+
+		err = ns.AddNode(req.NodeId)
+
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+
+		return &csi.ControllerPublishVolumeResponse{
+			PublishContext: map[string]string{
+				publishInfoServerID: ns.ID,
+			},
+		}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "Invalid volume type")
+	}
 }
 
 // ControllerUnpublishVolume deattaches the given volume from the node.
@@ -64,7 +99,37 @@ func (cs *ControllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 		return nil, status.Error(codes.InvalidArgument, "The volume ID must be provided")
 	}
 
-	return nil, status.Error(codes.Unimplemented, "")
+	// Separate the concatenated volume type and ID and attempt to revoke the node's access to the volume.
+	volumeInfo := strings.Split(req.VolumeId, "-")
+
+	if len(volumeInfo) != 2 {
+		return nil, status.Error(codes.InvalidArgument, "Invalid volume ID")
+	}
+
+	switch volumeInfo[0] {
+	case volumePrefixBlockStorage:
+		return nil, status.Error(codes.Unimplemented, "Block storage has not been implemented")
+	case volumePrefixNetworkStorage:
+		ns, notFound, err := loadNetworkStorage(cs.driver, volumeInfo[1])
+
+		if err != nil {
+			if notFound {
+				return nil, status.Error(codes.NotFound, "The specified volume does not exist")
+			}
+
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+
+		err = ns.RemoveNode(req.NodeId)
+
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+
+		return &csi.ControllerUnpublishVolumeResponse{}, nil
+	default:
+		return nil, status.Error(codes.InvalidArgument, "Invalid volume type")
+	}
 }
 
 // CreateSnapshot will be called by the CO to create a new snapshot from a source volume on behalf of a user.
@@ -213,7 +278,7 @@ func (cs *ControllerServer) ListSnapshots(ctx context.Context, req *csi.ListSnap
 
 // ListVolumes returns a list of all requested volumes.
 func (cs *ControllerServer) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "Volume listing is not supported")
+	return nil, status.Error(codes.Unimplemented, "Volume listings are not supported")
 }
 
 // ValidateVolumeCapabilities checks whether the volume capabilities requested are supported.

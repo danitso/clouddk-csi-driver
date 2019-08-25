@@ -467,6 +467,11 @@ func loadNetworkStorage(d *Driver, id string) (ns *NetworkStorage, notFound bool
 	return ns, false, nil
 }
 
+// AddNode grants a node access to the storage.
+func (ns *NetworkStorage) AddNode(nodeID string) error {
+	return errors.New("Not implemented")
+}
+
 // CreateFile creates a file on the server.
 func (ns *NetworkStorage) CreateFile(sftpClient *sftp.Client, filePath string, fileContents *bytes.Buffer) error {
 	debugCloudAction(rtNetworkStorage, "Creating file '%s' (id: %s)", filePath, ns.ID)
@@ -747,6 +752,11 @@ func (ns *NetworkStorage) EnsureDisk(size int) (err error) {
 	}
 
 	return nil
+}
+
+// RemoveNode revokes a node's access to the storage.
+func (ns *NetworkStorage) RemoveNode(nodeID string) error {
+	return errors.New("Not implemented")
 }
 
 // Wait waits for any pending and running transactions to end.
