@@ -23,7 +23,8 @@ const (
 	nsDiskLabel           = "k8s-network-storage"
 	nsFormatHostname      = "k8s-network-storage-%s"
 	nsPathAPTAutoConf     = "/etc/apt/apt.conf.d/00auto-conf"
-	nsPathBootstrapScript = "/tmp/clouddk_network_storage_bootstrap.sh"
+	nsPathBootstrapScript = "/etc/clouddk_network_storage_bootstrap.sh"
+	nsPathMountScript     = "/etc/clouddk_network_storage_mount.sh"
 	nsPathPublicKey       = "/root/.ssh/id_rsa_driver.pub"
 )
 
@@ -73,6 +74,34 @@ var (
 			ca-certificates \
 			nfs-kernel-server \
 			software-properties-common
+	`)
+	nsMountScript = heredoc.Doc(`
+		#!/bin/bash
+		set -e
+
+		# Specify the device and directory.
+		DATA_DEVICE="/dev/vdb"
+		DATA_DIRECTORY="/mnt/data"
+
+		# Format the device.
+		if [[ "$(blkid -s TYPE -o value "$DATA_DEVICE")" == "" ]]; then
+			mkfs -t ext4 "$DATA_DEVICE"
+		fi
+
+		# Ensure that the device is mounted when the system is booted.
+		if ! grep -q "$DATA_DIRECTORY" /etc/fstab; then
+			data_device_uuid="$(blkid -s UUID -o value "$DATA_DEVICE")"
+
+			sed --in-place "/${DATA_DEVICE//'/'/'\/'}/d" /etc/fstab
+			echo "UUID=${data_device_uuid} ${DATA_DIRECTORY} ext4 defaults,noatime,nodiratime,nofail 0 2" >> /etc/fstab
+		fi
+
+		# Ensure that the device is mounted.
+		if ! mountpoint -q "$DATA_DIRECTORY"; then
+			mkdir -p "$DATA_DIRECTORY"
+			mount "$DATA_DEVICE" "$DATA_DIRECTORY"
+			chown -R nobody:nogroup "$DATA_DIRECTORY"
+		fi
 	`)
 )
 
@@ -225,6 +254,16 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 	if err != nil {
 		debugCloudAction(rtNetworkStorage, "Failed to initialize server because file '%s' could not be created (id: %s)", nsPathBootstrapScript, ns.ID)
+
+		ns.Delete()
+
+		return nil, err
+	}
+
+	err = ns.CreateFile(sftpClient, nsPathMountScript, bytes.NewBufferString(strings.ReplaceAll(nsMountScript, "\r", "")))
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to initialize server because file '%s' could not be created (id: %s)", nsPathMountScript, ns.ID)
 
 		ns.Delete()
 
@@ -533,7 +572,25 @@ func (ns *NetworkStorage) EnsureDisk(size int) (err error) {
 	}
 
 	// Mount the data disk, if necessary.
-	// Work in progress...
+	sshSession, err := ns.CreateSSHSession(nil)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to ensure disk due to SSH session errors (id: %s)", ns.ID)
+
+		return err
+	}
+
+	defer sshSession.Close()
+
+	debugCloudAction(rtNetworkStorage, "Mounting data disk (id: %s)", ns.ID)
+
+	output, err := sshSession.CombinedOutput("/bin/bash " + nsPathMountScript)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to mount data disk (id: %s) - Output: %s - Error: %s", ns.ID, string(output), err.Error())
+
+		return err
+	}
 
 	return nil
 }
