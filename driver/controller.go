@@ -63,7 +63,7 @@ func (cs *ControllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 
 	switch volumeInfo[0] {
 	case volumePrefixBlockStorage:
-		return nil, status.Error(codes.Unimplemented, "Block storage has not been implemented")
+		return nil, status.Error(codes.Unimplemented, "Block storage is not supported")
 	case volumePrefixNetworkStorage:
 		ns, notFound, err := loadNetworkStorage(cs.driver, volumeInfo[1])
 
@@ -108,7 +108,7 @@ func (cs *ControllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 
 	switch volumeInfo[0] {
 	case volumePrefixBlockStorage:
-		return nil, status.Error(codes.Unimplemented, "Block storage has not been implemented")
+		return nil, status.Error(codes.Unimplemented, "Block storage is not supported")
 	case volumePrefixNetworkStorage:
 		ns, notFound, err := loadNetworkStorage(cs.driver, volumeInfo[1])
 
@@ -188,7 +188,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 
 // CreateVolumeBlockStorage creates new block storage from the given request. The function is idempotent.
 func (cs *ControllerServer) CreateVolumeBlockStorage(ctx context.Context, req *csi.CreateVolumeRequest, size int) (*csi.CreateVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "Block storage has not been implemented")
+	return nil, status.Error(codes.Unimplemented, "Block storage is not supported")
 }
 
 // CreateVolumeNetworkStorage creates new network storage from the given request. The function is idempotent.
@@ -241,7 +241,7 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 
 // DeleteVolumeBlockStorage deletes the given block storage. The function is idempotent.
 func (cs *ControllerServer) DeleteVolumeBlockStorage(ctx context.Context, req *csi.DeleteVolumeRequest, id string) (*csi.DeleteVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "Block storage has not been implemented")
+	return nil, status.Error(codes.Unimplemented, "Block storage is not supported")
 }
 
 // DeleteVolumeNetworkStorage deletes the given network storage. The function is idempotent.
