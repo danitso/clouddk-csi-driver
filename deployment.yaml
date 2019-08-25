@@ -102,11 +102,11 @@ spec:
   replicas: 3
   selector:
     matchLabels:
-      app: clouddk-csi-controllers
+      k8s-app: clouddk-csi-controllers
   template:
     metadata:
       labels:
-        app: clouddk-csi-controllers
+        k8s-app: clouddk-csi-controllers
     spec:
       serviceAccount: clouddk-csi-controllers
       containers:
@@ -181,11 +181,11 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: clouddk-csi-nodes
+      k8s-app: clouddk-csi-nodes
   template:
     metadata:
       labels:
-        app: clouddk-csi-nodes
+        k8s-app: clouddk-csi-nodes
     spec:
       priorityClassName: system-node-critical
       hostNetwork: true
