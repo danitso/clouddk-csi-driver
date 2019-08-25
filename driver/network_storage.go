@@ -26,8 +26,10 @@ const (
 	nsPathAPTAutoConf             = "/etc/apt/apt.conf.d/00auto-conf"
 	nsPathBootstrapScript         = "/etc/clouddk_network_storage_bootstrap.sh"
 	nsPathFirewallScript          = "/etc/network/if-up.d/00-nfs-firewall-rules"
+	nsPathLimitsConf              = "/etc/security/limits.conf"
 	nsPathMountScript             = "/etc/clouddk_network_storage_mount.sh"
 	nsPathPublicKey               = "/root/.ssh/id_rsa_driver.pub"
+	nsPathSysctlConf              = "/etc/sysctl.d/20-maximum-performance.conf"
 )
 
 var (
@@ -58,6 +60,9 @@ var (
 		# Turn off swap to improve performance.
 		swapoff -a
 		sed -i '/ swap / s/^/#/' /etc/fstab
+
+		# Load the optimized kernel configuration.
+		sysctl --system
 
 		# Configure APT to use a mirror located in Denmark instead of the default US mirror.
 		sed -i 's/us.archive.ubuntu.com/mirrors.dotsrc.org/' /etc/apt/sources.list
@@ -97,7 +102,7 @@ var (
 
 			echo 'NEED_SVCGSSD='
 			echo 'RPCMOUNTDOPTS="--manage-gids -p 2052"'
-			echo "RPCNFSDCOUNT=$((PROCESSOR_COUNT * 16))"
+			echo "RPCNFSDCOUNT=$((PROCESSOR_COUNT * 8))"
 			echo 'RPCNFSDPRIORITY=0'
 			echo 'RPCSVCGSSDOPTS='
 		) > /etc/default/nfs-kernel-server
@@ -139,6 +144,16 @@ var (
 		iptables -I INPUT -i "$IFACE" -p udp --dport 111 -m set --match-set nodes src -j ACCEPT
 		iptables -I INPUT -i "$IFACE" -p tcp --dport 111 -m set --match-set nodes src -j ACCEPT
 	`)
+	nsLimitsConf = heredoc.Doc(`
+		* soft nproc 1048576
+		* hard nproc 1048576
+		* soft nofile 1048576
+		* hard nofile 1048576
+		* soft stack 1048576
+		* hard stack 1048576
+		* soft memlock unlimited
+		* hard memlock unlimited
+	`)
 	nsMountScript = heredoc.Doc(`
 		#!/bin/sh
 		# Specify the device and directory.
@@ -162,6 +177,34 @@ var (
 			mount "$DATA_DEVICE" "$DATA_DIRECTORY"
 			chown -R nobody:nogroup "$DATA_DIRECTORY"
 		fi
+	`)
+	nsSysctlConf = heredoc.Doc(`
+		fs.file-max=1048576
+		fs.inotify.max_user_instances=1048576
+		fs.inotify.max_user_watches=1048576
+		fs.nr_open=1048576
+		net.core.netdev_max_backlog=1048576
+		net.core.rmem_max=16777216
+		net.core.somaxconn=65535
+		net.core.wmem_max=16777216
+		net.ipv4.tcp_congestion_control=htcp
+		net.ipv4.ip_local_port_range=32768 65535
+		net.ipv4.tcp_fin_timeout=5
+		net.ipv4.tcp_max_orphans=1048576
+		net.ipv4.tcp_max_syn_backlog=20480
+		net.ipv4.tcp_max_tw_buckets=400000
+		net.ipv4.tcp_no_metrics_save=1
+		net.ipv4.tcp_rmem=4096 87380 16777216
+		net.ipv4.tcp_synack_retries=2
+		net.ipv4.tcp_syn_retries=2
+		net.ipv4.tcp_tw_recycle=1
+		net.ipv4.tcp_tw_reuse=1
+		net.ipv4.tcp_wmem=4096 65535 16777216
+		vm.max_map_count=1048576
+		vm.min_free_kbytes=65535
+		vm.overcommit_memory=1
+		vm.swappiness=0
+		vm.vfs_cache_pressure=50
 	`)
 )
 
@@ -337,6 +380,16 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 		return nil, false, err
 	}
 
+	err = ns.CreateFile(sftpClient, nsPathLimitsConf, bytes.NewBufferString(strings.ReplaceAll(nsLimitsConf, "\r", "")))
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to initialize server because file '%s' could not be created (id: %s)", nsPathLimitsConf, ns.ID)
+
+		ns.Delete()
+
+		return nil, false, err
+	}
+
 	err = ns.CreateFile(sftpClient, nsPathMountScript, bytes.NewBufferString(strings.ReplaceAll(nsMountScript, "\r", "")))
 
 	if err != nil {
@@ -351,6 +404,16 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 	if err != nil {
 		debugCloudAction(rtNetworkStorage, "Failed to initialize server because file '%s' could not be created (id: %s)", nsPathPublicKey, ns.ID)
+
+		ns.Delete()
+
+		return nil, false, err
+	}
+
+	err = ns.CreateFile(sftpClient, nsPathSysctlConf, bytes.NewBufferString(strings.ReplaceAll(nsSysctlConf, "\r", "")))
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to initialize server because file '%s' could not be created (id: %s)", nsPathSysctlConf, ns.ID)
 
 		ns.Delete()
 
