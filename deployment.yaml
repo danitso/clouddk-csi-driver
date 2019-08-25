@@ -1,0 +1,264 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+# -------------------------------------------------------------------
+# DRIVER
+# -------------------------------------------------------------------
+apiVersion: storage.k8s.io/v1beta1
+kind: CSIDriver
+metadata:
+  name: csi.cloud.dk
+spec:
+  attachRequired: true
+  podInfoOnMount: true
+---
+# -------------------------------------------------------------------
+# RBAC: CSI ATTACHER
+# -------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-attacher
+  namespace: kube-system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: external-attacher-runner
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-attacher-role
+subjects:
+  - kind: ServiceAccount
+    name: csi-attacher
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: external-attacher-runner
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: external-attacher-cfg
+  namespace: kube-system
+rules:
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "watch", "list", "delete", "update", "create"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-attacher-role-cfg
+  namespace: kube-system
+subjects:
+  - kind: ServiceAccount
+    name: csi-attacher
+    namespace: kube-system
+roleRef:
+  kind: Role
+  name: external-attacher-cfg
+  apiGroup: rbac.authorization.k8s.io
+---
+# -------------------------------------------------------------------
+# DEPLOYMENT: CSI ATTACHER
+# -------------------------------------------------------------------
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: csi-attacher
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      external-attacher: clouddk-csi-driver
+  template:
+    metadata:
+      labels:
+        external-attacher: clouddk-csi-driver
+    spec:
+      serviceAccount: csi-attacher
+      containers:
+        - name: csi-attacher
+          image: quay.io/k8scsi/csi-attacher:v1.2.1
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
+            - "--retry-interval-max=300"
+            - "--retry-interval-start=30"
+            - "--timeout=60"
+            - "--worker-threads=8"
+          env:
+            - name: ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: clouddk-csi-driver-config
+                  key: CLOUDDK_CSI_ENDPOINT
+            - name: MY_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          imagePullPolicy: "Always"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+        - name: csi-clouddk-driver
+          image: docker.io/danitso/clouddk-csi-driver:latest
+          imagePullPolicy: "Always"
+          envFrom:
+          - secretRef:
+              name: clouddk-csi-driver-config
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+      volumes:
+        - name: socket-dir
+          emptyDir:
+---
+# -------------------------------------------------------------------
+# RBAC: CSI PROVISIONER
+# -------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-provisioner
+  namespace: kube-system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: external-provisioner-runner
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["get", "list"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents"]
+    verbs: ["get", "list"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-provisioner-role
+roleRef:
+  kind: ClusterRole
+  name: external-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+  - kind: ServiceAccount
+    name: csi-provisioner
+    namespace: kube-system
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: external-provisioner-cfg
+  namespace: kube-system
+rules:
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "watch", "list", "delete", "update", "create"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-provisioner-role-cfg
+  namespace: kube-system
+roleRef:
+  kind: Role
+  name: external-provisioner-cfg
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+  - kind: ServiceAccount
+    name: csi-provisioner
+    namespace: kube-system
+---
+# -------------------------------------------------------------------
+# DEPLOYMENT: CSI PROVISIONER
+# -------------------------------------------------------------------
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: csi-provisioner
+  namespace: kube-system
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: csi-provisioner
+  template:
+    metadata:
+      labels:
+        app: csi-provisioner
+    spec:
+      serviceAccount: csi-provisioner
+      containers:
+        - name: csi-provisioner
+          image: quay.io/k8scsi/csi-provisioner:v1.3.0
+          imagePullPolicy: "Always"
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--enable-leader-election"
+            - "--leader-election-type=leases"
+            - "--retry-interval-max=300"
+            - "--retry-interval-start=30"
+            - "--timeout=900"
+            - "--worker-threads=8"
+          env:
+            - name: ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: clouddk-csi-driver-config
+                  key: CLOUDDK_CSI_ENDPOINT
+          envFrom:
+          - secretRef:
+              name: clouddk-csi-driver-config
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+        - name: csi-clouddk-driver
+          image: docker.io/danitso/clouddk-csi-driver:latest
+          imagePullPolicy: "Always"
+          envFrom:
+          - secretRef:
+              name: clouddk-csi-driver-config
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+      volumes:
+        - name: socket-dir
+          emptyDir:

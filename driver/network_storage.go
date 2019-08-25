@@ -110,6 +110,9 @@ var (
 		# Load some additional kernel modules.
 		modprobe lockd
 		echo 'lockd' >> /etc/modules
+
+		# Restart the NFS service.
+		systemctl restart nfs-kernel-server
 	`)
 	nsFirewallScript = heredoc.Doc(`
 		#!/bin/bash
