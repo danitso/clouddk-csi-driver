@@ -860,6 +860,11 @@ func (ns *NetworkStorage) EnsureDisk(size int) (err error) {
 	return nil
 }
 
+// Mount mounts the network storage at the specified path.
+func (ns *NetworkStorage) Mount(path string) (err error) {
+	return errors.New("Not implemented")
+}
+
 // RemoveNode revokes a node's access to the network storage.
 func (ns *NetworkStorage) RemoveNode(nodeID string) error {
 	server, _, err := getServerByHostname(ns.driver.Configuration.ClientSettings, nodeID)
@@ -911,6 +916,11 @@ func (ns *NetworkStorage) RemoveNode(nodeID string) error {
 	}
 
 	return nil
+}
+
+// Unmount unmounts the network storage from the specified path.
+func (ns *NetworkStorage) Unmount(path string) (err error) {
+	return errors.New("Not implemented")
 }
 
 // Wait waits for any pending and running transactions to end.

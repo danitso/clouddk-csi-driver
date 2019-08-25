@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	publishInfoServerID        = DriverName + "/server-id"
 	volumePrefixBlockStorage   = "bs"
 	volumePrefixNetworkStorage = "ns"
 )
@@ -82,9 +81,7 @@ func (cs *ControllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 		}
 
 		return &csi.ControllerPublishVolumeResponse{
-			PublishContext: map[string]string{
-				publishInfoServerID: ns.ID,
-			},
+			PublishContext: map[string]string{},
 		}, nil
 	default:
 		return nil, status.Error(codes.InvalidArgument, "Invalid volume type")

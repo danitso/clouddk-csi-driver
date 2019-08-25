@@ -54,30 +54,17 @@ func (ns *NodeServer) NodeGetVolumeStats(ctx context.Context, in *csi.NodeGetVol
 // NodePublishVolume mounts the volume mounted to the staging path to the target path.
 func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
 	if req.VolumeId == "" {
-		return nil, status.Error(codes.InvalidArgument, "Volume ID must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The Volume ID must be provided")
 	} else if req.StagingTargetPath == "" {
-		return nil, status.Error(codes.InvalidArgument, "Staging Target Path must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The Staging Target Path must be provided")
 	} else if req.TargetPath == "" {
-		return nil, status.Error(codes.InvalidArgument, "Target Path must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The Target Path must be provided")
 	} else if req.VolumeCapability == nil {
-		return nil, status.Error(codes.InvalidArgument, "Volume Capability must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The Volume Capability must be provided")
 	}
 
-	// Separate the concatenated volume type and ID and attempt to revoke the node's access to the volume.
-	volumeInfo := strings.Split(req.VolumeId, "-")
-
-	if len(volumeInfo) != 2 {
-		return nil, status.Error(codes.InvalidArgument, "Invalid volume ID")
-	}
-
-	switch volumeInfo[0] {
-	case volumePrefixBlockStorage:
-		return nil, status.Error(codes.Unimplemented, "Block storage is not supported")
-	case volumePrefixNetworkStorage:
-		return nil, status.Error(codes.Unimplemented, "Work in progress")
-	default:
-		return nil, status.Error(codes.InvalidArgument, "Invalid volume type")
-	}
+	// Bind mount.
+	return nil, status.Error(codes.Unimplemented, "Not implemented")
 }
 
 // NodeStageVolume mounts the volume to a staging path on the node.
@@ -85,11 +72,11 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 // Once mounted, NodePublishVolume will make sure to mount it to the appropriate path.
 func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
 	if req.VolumeId == "" {
-		return nil, status.Error(codes.InvalidArgument, "Volume ID must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The Volume ID must be provided")
 	} else if req.StagingTargetPath == "" {
-		return nil, status.Error(codes.InvalidArgument, "Staging Target Path must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The Staging Target Path must be provided")
 	} else if req.VolumeCapability == nil {
-		return nil, status.Error(codes.InvalidArgument, "Volume Capability must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The Volume Capability must be provided")
 	}
 
 	// Separate the concatenated volume type and ID and attempt to revoke the node's access to the volume.
@@ -103,7 +90,23 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	case volumePrefixBlockStorage:
 		return nil, status.Error(codes.Unimplemented, "Block storage is not supported")
 	case volumePrefixNetworkStorage:
-		return nil, status.Error(codes.Unimplemented, "Work in progress")
+		ns, notFound, err := loadNetworkStorage(ns.driver, volumeInfo[1])
+
+		if err != nil {
+			if notFound {
+				return nil, status.Error(codes.NotFound, "The volume does not exist")
+			}
+
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+
+		err = ns.Mount(req.StagingTargetPath)
+
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+
+		return &csi.NodeStageVolumeResponse{}, nil
 	default:
 		return nil, status.Error(codes.InvalidArgument, "Invalid volume type")
 	}
@@ -112,34 +115,21 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 // NodeUnpublishVolume unmounts the volume from the target path.
 func (ns *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
 	if req.VolumeId == "" {
-		return nil, status.Error(codes.InvalidArgument, "Volume ID must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The Volume ID must be provided")
 	} else if req.TargetPath == "" {
-		return nil, status.Error(codes.InvalidArgument, "Target Path must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The Target Path must be provided")
 	}
 
-	// Separate the concatenated volume type and ID and attempt to revoke the node's access to the volume.
-	volumeInfo := strings.Split(req.VolumeId, "-")
-
-	if len(volumeInfo) != 2 {
-		return nil, status.Error(codes.InvalidArgument, "Invalid volume ID")
-	}
-
-	switch volumeInfo[0] {
-	case volumePrefixBlockStorage:
-		return nil, status.Error(codes.Unimplemented, "Block storage is not supported")
-	case volumePrefixNetworkStorage:
-		return nil, status.Error(codes.Unimplemented, "Work in progress")
-	default:
-		return nil, status.Error(codes.InvalidArgument, "Invalid volume type")
-	}
+	// Unbind mount.
+	return nil, status.Error(codes.Unimplemented, "Not implemented")
 }
 
 // NodeUnstageVolume unstages the volume from the staging path.
 func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
 	if req.VolumeId == "" {
-		return nil, status.Error(codes.InvalidArgument, "Volume ID must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The Volume ID must be provided")
 	} else if req.StagingTargetPath == "" {
-		return nil, status.Error(codes.InvalidArgument, "Staging Target Path must be provided")
+		return nil, status.Error(codes.InvalidArgument, "The Staging Target Path must be provided")
 	}
 
 	// Separate the concatenated volume type and ID and attempt to revoke the node's access to the volume.
@@ -153,7 +143,23 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 	case volumePrefixBlockStorage:
 		return nil, status.Error(codes.Unimplemented, "Block storage is not supported")
 	case volumePrefixNetworkStorage:
-		return nil, status.Error(codes.Unimplemented, "Work in progress")
+		ns, notFound, err := loadNetworkStorage(ns.driver, volumeInfo[1])
+
+		if err != nil {
+			if notFound {
+				return nil, status.Error(codes.NotFound, "The volume does not exist")
+			}
+
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+
+		err = ns.Unmount(req.StagingTargetPath)
+
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+
+		return &csi.NodeUnstageVolumeResponse{}, nil
 	default:
 		return nil, status.Error(codes.InvalidArgument, "Invalid volume type")
 	}
