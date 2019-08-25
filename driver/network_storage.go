@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,13 +20,14 @@ import (
 )
 
 const (
-	nsDiskLabel           = "k8s-network-storage"
-	nsFormatHostname      = "k8s-network-storage-%s"
-	nsPathAPTAutoConf     = "/etc/apt/apt.conf.d/00auto-conf"
-	nsPathBootstrapScript = "/etc/clouddk_network_storage_bootstrap.sh"
-	nsPathFirewallScript  = "/etc/network/if-up.d/00-nfs-firewall-rules"
-	nsPathMountScript     = "/etc/clouddk_network_storage_mount.sh"
-	nsPathPublicKey       = "/root/.ssh/id_rsa_driver.pub"
+	nsDiskLabel                   = "k8s-network-storage"
+	nsFormatHostname              = "k8s-network-storage-%s"
+	nsFormatNodeNetworkScriptPath = "/etc/network/if-up.d/10-nfs-%s"
+	nsPathAPTAutoConf             = "/etc/apt/apt.conf.d/00auto-conf"
+	nsPathBootstrapScript         = "/etc/clouddk_network_storage_bootstrap.sh"
+	nsPathFirewallScript          = "/etc/network/if-up.d/00-nfs-firewall-rules"
+	nsPathMountScript             = "/etc/clouddk_network_storage_mount.sh"
+	nsPathPublicKey               = "/root/.ssh/id_rsa_driver.pub"
 )
 
 var (
@@ -38,9 +38,7 @@ var (
 		}
 	`)
 	nsBootstrapScript = heredoc.Doc(`
-		#!/bin/bash
-		set -e
-
+		#!/bin/sh
 		# Specify the required environment variables.
 		export DEBIAN_FRONTEND=noninteractive
 
@@ -49,7 +47,7 @@ var (
 		chmod +x /etc/network/if-up.d/*
 
 		# Authorize the SSH key and disable password authentication.
-		if [[ ! -f /root/.ssh/authorized_keys ]]; then
+		if [ ! -f /root/.ssh/authorized_keys ]; then
 			touch /root/.ssh/authorized_keys
 		fi
 
@@ -115,11 +113,9 @@ var (
 		systemctl restart nfs-kernel-server
 	`)
 	nsFirewallScript = heredoc.Doc(`
-		#!/bin/bash
-		set -e
-
+		#!/bin/sh
 		# Terminate the script if we are not dealing with the public interface.
-		if [[ "$IFACE" != "eth0" ]]; then
+		if [ "$IFACE" != "eth0" ]; then
 			exit 0
 		fi
 
@@ -144,16 +140,14 @@ var (
 		iptables -I INPUT -i "$IFACE" -p tcp --dport 111 -m set --match-set nodes src -j ACCEPT
 	`)
 	nsMountScript = heredoc.Doc(`
-		#!/bin/bash
-		set -e
-
+		#!/bin/sh
 		# Specify the device and directory.
 		DATA_DEVICE="/dev/vdb"
 		DATA_DIRECTORY="/mnt/data"
 
 		# Ensure that the device is mounted.
 		if ! mountpoint -q "$DATA_DIRECTORY"; then
-			if [[ "$(blkid -s TYPE -o value "$DATA_DEVICE")" == "" ]]; then
+			if [ "$(blkid -s TYPE -o value "$DATA_DEVICE")" == "" ]; then
 				mkfs -t ext4 "$DATA_DEVICE"
 			fi
 
@@ -185,33 +179,10 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 	hostname := fmt.Sprintf(nsFormatHostname, name)
 
 	// Determine if the server already exists to avoid duplicates.
-	res, err := clouddk.DoClientRequest(
-		ns.driver.Configuration.ClientSettings,
-		"GET",
-		fmt.Sprintf("cloudservers?hostname=%s", url.QueryEscape(hostname)),
-		new(bytes.Buffer),
-		[]int{200},
-		1,
-		1,
-	)
+	_, _, err = getServerByHostname(d.Configuration.ClientSettings, hostname)
 
-	if err != nil {
-		debugCloudAction(rtNetworkStorage, "Failed to determine if server exists (hostmame: %s)", hostname)
-
-		return nil, false, err
-	}
-
-	serverList := clouddk.ServerListBody{}
-	err = json.NewDecoder(res.Body).Decode(&serverList)
-
-	if err != nil {
-		return nil, false, err
-	}
-
-	for _, v := range serverList {
-		if v.Hostname == hostname {
-			return nil, true, fmt.Errorf("Server already exists (hostname: %s)", hostname)
-		}
+	if err == nil {
+		return nil, true, fmt.Errorf("Server already exists (hostname: %s)", hostname)
 	}
 
 	// Create a new storage server of the given size.
@@ -234,7 +205,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 		return nil, false, err
 	}
 
-	res, err = clouddk.DoClientRequest(d.Configuration.ClientSettings, "POST", "cloudservers", reqBody, []int{200}, 1, 1)
+	res, err := clouddk.DoClientRequest(d.Configuration.ClientSettings, "POST", "cloudservers", reqBody, []int{200}, 1, 1)
 
 	if err != nil {
 		debugCloudAction(rtNetworkStorage, "Failed to create server (hostname: %s)", hostname)
@@ -401,7 +372,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 	debugCloudAction(rtNetworkStorage, "Bootstrapping server (id: %s)", ns.ID)
 
-	output, err := sshSession.CombinedOutput("/bin/bash " + nsPathBootstrapScript)
+	output, err := sshSession.CombinedOutput("/bin/sh " + nsPathBootstrapScript)
 
 	if err != nil {
 		debugCloudAction(rtNetworkStorage, "Failed to bootstrap server (id: %s) - Output: %s - Error: %s", ns.ID, string(output), err.Error())
@@ -470,9 +441,78 @@ func loadNetworkStorage(d *Driver, id string) (ns *NetworkStorage, notFound bool
 	return ns, false, nil
 }
 
-// AddNode grants a node access to the storage.
+// AddNode grants a node access to the network storage.
 func (ns *NetworkStorage) AddNode(nodeID string) error {
-	return errors.New("Not implemented")
+	server, _, err := getServerByHostname(ns.driver.Configuration.ClientSettings, nodeID)
+
+	if err != nil {
+		return err
+	}
+
+	if len(server.NetworkInterfaces) == 0 {
+		return fmt.Errorf("Node '%s' has no network interfaces", nodeID)
+	}
+
+	// Grant the node access to the network storage.
+	sshClient, err := ns.CreateSSHClient()
+
+	if err != nil {
+		return err
+	}
+
+	defer sshClient.Close()
+
+	sftpClient, err := ns.CreateSFTPClient(sshClient)
+
+	if err != nil {
+		return err
+	}
+
+	defer sftpClient.Close()
+
+	nodeNetworkScriptPath := fmt.Sprintf(nsFormatNodeNetworkScriptPath, nodeID)
+
+	err = ns.CreateFile(sftpClient, nodeNetworkScriptPath, bytes.NewBufferString(
+		"#!/bin/sh\n"+
+			"ipset add nodes "+server.NetworkInterfaces[0].IPAddresses[0].Address+"\n",
+	))
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to grant access from node '%s' due to script creation errors (id: %s)", ns.ID)
+
+		return err
+	}
+
+	sshSession, err := ns.CreateSSHSession(sshClient)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to grant access from node '%s' due to SSH session errors (id: %s)", ns.ID)
+
+		return err
+	}
+
+	defer sshSession.Close()
+
+	output, err := sshSession.CombinedOutput(
+		"chmod +x " + nodeNetworkScriptPath +
+			"&& " + nodeNetworkScriptPath +
+			"&& echo '/mnt/data\t" + server.NetworkInterfaces[0].IPAddresses[0].Address + "(rw,sync,no_subtree_check)' >> /etc/exports" +
+			"&& systemctl restart nfs-kernel-server",
+	)
+
+	if err != nil {
+		debugCloudAction(
+			rtNetworkStorage,
+			"Failed to grant access from node '%s' due to script errors (id: %s) - Output: %s - Error: %s",
+			ns.ID,
+			string(output),
+			err.Error(),
+		)
+
+		return err
+	}
+
+	return nil
 }
 
 // CreateFile creates a file on the server.
@@ -746,7 +786,7 @@ func (ns *NetworkStorage) EnsureDisk(size int) (err error) {
 
 	debugCloudAction(rtNetworkStorage, "Mounting data disk (id: %s)", ns.ID)
 
-	output, err := sshSession.CombinedOutput("/bin/bash " + nsPathMountScript)
+	output, err := sshSession.CombinedOutput("/bin/sh " + nsPathMountScript)
 
 	if err != nil {
 		debugCloudAction(rtNetworkStorage, "Failed to mount data disk (id: %s) - Output: %s - Error: %s", ns.ID, string(output), err.Error())
@@ -757,9 +797,57 @@ func (ns *NetworkStorage) EnsureDisk(size int) (err error) {
 	return nil
 }
 
-// RemoveNode revokes a node's access to the storage.
+// RemoveNode revokes a node's access to the network storage.
 func (ns *NetworkStorage) RemoveNode(nodeID string) error {
-	return errors.New("Not implemented")
+	server, _, err := getServerByHostname(ns.driver.Configuration.ClientSettings, nodeID)
+
+	if err != nil {
+		return err
+	}
+
+	if len(server.NetworkInterfaces) == 0 {
+		return fmt.Errorf("Node '%s' has no network interfaces", nodeID)
+	}
+
+	// Revoke the node's access to the network storage.
+	sshClient, err := ns.CreateSSHClient()
+
+	if err != nil {
+		return err
+	}
+
+	defer sshClient.Close()
+
+	nodeNetworkScriptPath := fmt.Sprintf(nsFormatNodeNetworkScriptPath, nodeID)
+	sshSession, err := ns.CreateSSHSession(sshClient)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to revoke access from node '%s' due to SSH session errors (id: %s)", ns.ID)
+
+		return err
+	}
+
+	defer sshSession.Close()
+
+	output, err := sshSession.CombinedOutput(
+		"rm -f " + nodeNetworkScriptPath +
+			"&& ipset del nodes " + server.NetworkInterfaces[0].IPAddresses[0].Address +
+			"&& sed -i '/" + server.NetworkInterfaces[0].IPAddresses[0].Address + "/d' /etc/exports",
+	)
+
+	if err != nil {
+		debugCloudAction(
+			rtNetworkStorage,
+			"Failed to revoke access from node '%s' due to script errors (id: %s) - Output: %s - Error: %s",
+			ns.ID,
+			string(output),
+			err.Error(),
+		)
+
+		return err
+	}
+
+	return nil
 }
 
 // Wait waits for any pending and running transactions to end.

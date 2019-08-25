@@ -5,20 +5,25 @@
 package driver
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"math"
 	"math/rand"
+	"net/url"
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/danitso/terraform-provider-clouddk/clouddk"
 )
 
 const (
 	defaultVolumeCapacityInBytes = 17179869184
 	maximumVolumeCapacityInBytes = 8796093022208
 	minimumVolumeCapacityInBytes = 1073741824
+	rtCommon                     = "COMMON"
 	rtNetworkStorage             = "NS"
 	rtVolumes                    = "VOLUMES"
 )
@@ -113,6 +118,42 @@ func getRandomPassword(length int) string {
 	}
 
 	return b.String()
+}
+
+// getServerByHostname retrieves information about a server.
+func getServerByHostname(s *clouddk.ClientSettings, hostname string) (server *clouddk.ServerBody, notFound bool, err error) {
+	res, err := clouddk.DoClientRequest(
+		s,
+		"GET",
+		fmt.Sprintf("cloudservers?hostname=%s", url.QueryEscape(hostname)),
+		new(bytes.Buffer),
+		[]int{200},
+		1,
+		1,
+	)
+
+	if err != nil {
+		debugCloudAction(rtCommon, "Failed to retrieve information about server '%s' due to API errors", hostname)
+
+		return nil, false, err
+	}
+
+	serverList := clouddk.ServerListBody{}
+	err = json.NewDecoder(res.Body).Decode(&serverList)
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	for _, v := range serverList {
+		if v.Hostname == hostname {
+			return &v, false, nil
+		}
+	}
+
+	debugCloudAction(rtCommon, "No matching servers for hostname '%s'", hostname)
+
+	return nil, true, fmt.Errorf("No matching servers for hostname '%s'", hostname)
 }
 
 // parseCapacity parses a capacity range and returns the capacity in gigabytes.
