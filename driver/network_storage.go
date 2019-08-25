@@ -317,7 +317,49 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 // loadNetworkStorage initializes the network storage handler for the given volume.
 func loadNetworkStorage(d *Driver, id string) (ns *NetworkStorage, notFound bool, err error) {
-	return nil, false, errors.New("Not implemented")
+	res, err := clouddk.DoClientRequest(
+		d.Configuration.ClientSettings,
+		"GET",
+		fmt.Sprintf("cloudservers/%s", id),
+		new(bytes.Buffer),
+		[]int{200},
+		1,
+		1,
+	)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to load server (id: %s)", id)
+
+		return nil, (res.StatusCode == 404), err
+	}
+
+	server := clouddk.ServerBody{}
+	err = json.NewDecoder(res.Body).Decode(&server)
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	if len(server.NetworkInterfaces) == 0 {
+		debugCloudAction(rtNetworkStorage, "Failed to load server due to lack of network interfaces (id: %s)", id)
+
+		return nil, false, fmt.Errorf("The server has no network interfaces (id: %s)", id)
+	}
+
+	ns = &NetworkStorage{
+		ID: server.Identifier,
+		IP: server.NetworkInterfaces[0].IPAddresses[0].Address,
+	}
+
+	for _, v := range server.Disks {
+		if v.Label == nsDiskLabel {
+			ns.Size = int(v.Size)
+
+			break
+		}
+	}
+
+	return ns, false, nil
 }
 
 // CreateFile creates a file on the server.
