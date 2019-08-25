@@ -25,6 +25,7 @@ const (
 	nsFormatHostname      = "k8s-network-storage-%s"
 	nsPathAPTAutoConf     = "/etc/apt/apt.conf.d/00auto-conf"
 	nsPathBootstrapScript = "/etc/clouddk_network_storage_bootstrap.sh"
+	nsPathFirewallScript  = "/etc/network/if-up.d/00-nfs-firewall-rules"
 	nsPathMountScript     = "/etc/clouddk_network_storage_mount.sh"
 	nsPathPublicKey       = "/root/.ssh/id_rsa_driver.pub"
 )
@@ -42,6 +43,10 @@ var (
 
 		# Specify the required environment variables.
 		export DEBIAN_FRONTEND=noninteractive
+
+		# Change script permissions.
+		chmod +x /etc/clouddk_*
+		chmod +x /etc/network/if-up.d/*
 
 		# Authorize the SSH key and disable password authentication.
 		if [[ ! -f /root/.ssh/authorized_keys ]]; then
@@ -69,12 +74,71 @@ var (
 		apt-get -qq upgrade -y
 		apt-get -qq dist-upgrade -y
 
+		# Apply the firewall rules for the NFS service.
+		export IFACE="eth0"
+
+		/etc/network/if-up.d/00-nfs-firewall-rules
+
 		# Install some additional packages including the NFS kernel server.
 		apt-get -qq install -y \
 			apt-transport-https \
 			ca-certificates \
+			ipset \
 			nfs-kernel-server \
 			software-properties-common
+
+		# Update the NFS configuration files.
+		(
+			echo 'NEED_GSSD='
+			echo 'NEED_IDMAPD='
+			echo 'NEED_STATD='
+			echo 'STATDOPTS="--port 2050"'
+		) > /etc/default/nfs-common
+		(
+			PROCESSOR_COUNT="$(nproc)"
+
+			echo 'NEED_SVCGSSD='
+			echo 'RPCMOUNTDOPTS="--manage-gids -p 2052"'
+			echo "RPCNFSDCOUNT=$((PROCESSOR_COUNT * 16))"
+			echo 'RPCNFSDPRIORITY=0'
+			echo 'RPCSVCGSSDOPTS='
+		) > /etc/default/nfs-kernel-server
+		(
+			echo 'options lockd nlm_udpport=2051 nlm_tcpport=2051'
+		) > /etc/modprobe.d/nfs.conf
+
+		# Load some additional kernel modules.
+		modprobe lockd
+		echo 'lockd' >> /etc/modules
+	`)
+	nsFirewallScript = heredoc.Doc(`
+		#!/bin/bash
+		set -e
+
+		# Terminate the script if we are not dealing with the public interface.
+		if [[ "$IFACE" != "eth0" ]]; then
+			exit 0
+		fi
+
+		# Create the ipset for the nodes.
+		if ! ipset list | grep -q -i 'Name: nodes'; then
+			ipset create nodes hash:ip hashsize 1024
+		fi
+
+		ipset flush nodes
+
+		# Add the firewall rules to iptables.
+		iptables -I INPUT -i "$IFACE" -p udp --dport 2049:2052 -j DROP
+		iptables -I INPUT -i "$IFACE" -p tcp --dport 2049:2052 -j DROP
+
+		iptables -I INPUT -i "$IFACE" -p udp --dport 111 -j DROP
+		iptables -I INPUT -i "$IFACE" -p tcp --dport 111 -j DROP
+
+		iptables -I INPUT -i "$IFACE" -p udp --dport 2049:2052 -m set --match-set nodes src -j ACCEPT
+		iptables -I INPUT -i "$IFACE" -p tcp --dport 2049:2052 -m set --match-set nodes src -j ACCEPT
+
+		iptables -I INPUT -i "$IFACE" -p udp --dport 111 -m set --match-set nodes src -j ACCEPT
+		iptables -I INPUT -i "$IFACE" -p tcp --dport 111 -m set --match-set nodes src -j ACCEPT
 	`)
 	nsMountScript = heredoc.Doc(`
 		#!/bin/bash
@@ -283,6 +347,16 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 	if err != nil {
 		debugCloudAction(rtNetworkStorage, "Failed to initialize server because file '%s' could not be created (id: %s)", nsPathBootstrapScript, ns.ID)
+
+		ns.Delete()
+
+		return nil, false, err
+	}
+
+	err = ns.CreateFile(sftpClient, nsPathFirewallScript, bytes.NewBufferString(strings.ReplaceAll(nsFirewallScript, "\r", "")))
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to initialize server because file '%s' could not be created (id: %s)", nsPathFirewallScript, ns.ID)
 
 		ns.Delete()
 
