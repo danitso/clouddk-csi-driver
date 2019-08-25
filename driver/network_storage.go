@@ -188,7 +188,7 @@ var (
 		net.core.somaxconn=65535
 		net.core.wmem_max=16777216
 		net.ipv4.tcp_congestion_control=htcp
-		net.ipv4.ip_local_port_range=32768 65535
+		net.ipv4.ip_local_port_range=4096 65535
 		net.ipv4.tcp_fin_timeout=5
 		net.ipv4.tcp_max_orphans=1048576
 		net.ipv4.tcp_max_syn_backlog=20480
