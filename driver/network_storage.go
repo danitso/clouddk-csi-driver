@@ -476,55 +476,64 @@ func (ns *NetworkStorage) EnsureDisk(size int) (err error) {
 		return err
 	}
 
+	diskFound := false
+
 	for _, v := range diskList {
 		if v.Label == nsDiskLabel {
-			return nil
+			diskFound = true
+
+			break
 		}
 	}
 
 	// Create a new data disk and wait for it to become attached.
-	debugCloudAction(rtNetworkStorage, "Creating data disk (id: %s - size: %d GB)", ns.ID, size)
+	if !diskFound {
+		debugCloudAction(rtNetworkStorage, "Creating data disk (id: %s - size: %d GB)", ns.ID, size)
 
-	createBody := clouddk.DiskCreateBody{
-		Label: nsDiskLabel,
-		Size:  clouddk.CustomInt(size),
+		createBody := clouddk.DiskCreateBody{
+			Label: nsDiskLabel,
+			Size:  clouddk.CustomInt(size),
+		}
+
+		reqBody := new(bytes.Buffer)
+		err = json.NewEncoder(reqBody).Encode(createBody)
+
+		if err != nil {
+			return err
+		}
+
+		res, err = clouddk.DoClientRequest(
+			ns.driver.Configuration.ClientSettings,
+			"POST",
+			fmt.Sprintf("cloudservers/%s/disks", ns.ID),
+			reqBody,
+			[]int{200},
+			1,
+			1,
+		)
+
+		if err != nil {
+			debugCloudAction(rtNetworkStorage, "Failed to create data disk (id: %s)", ns.ID)
+
+			return err
+		}
+
+		disk := clouddk.DiskBody{}
+		err = json.NewDecoder(res.Body).Decode(&disk)
+
+		if err != nil {
+			return err
+		}
+
+		err = ns.Wait()
+
+		if err != nil {
+			return err
+		}
 	}
 
-	reqBody := new(bytes.Buffer)
-	err = json.NewEncoder(reqBody).Encode(createBody)
-
-	if err != nil {
-		return err
-	}
-
-	res, err = clouddk.DoClientRequest(
-		ns.driver.Configuration.ClientSettings,
-		"POST",
-		fmt.Sprintf("cloudservers/%s/disks", ns.ID),
-		reqBody,
-		[]int{200},
-		1,
-		1,
-	)
-
-	if err != nil {
-		debugCloudAction(rtNetworkStorage, "Failed to create data disk (id: %s)", ns.ID)
-
-		return err
-	}
-
-	disk := clouddk.DiskBody{}
-	err = json.NewDecoder(res.Body).Decode(&disk)
-
-	if err != nil {
-		return err
-	}
-
-	err = ns.Wait()
-
-	if err != nil {
-		return err
-	}
+	// Mount the data disk, if necessary.
+	// Work in progress...
 
 	return nil
 }
