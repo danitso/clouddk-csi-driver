@@ -15,11 +15,8 @@ import (
 )
 
 const (
-	defaultVolumeCapacityInBytes = 17179869184
-	maximumVolumeCapacityInBytes = 8796093022208
-	minimumVolumeCapacityInBytes = 1073741824
-	volumePrefixBlockStorage     = "bs"
-	volumePrefixNetworkStorage   = "ns"
+	volumePrefixBlockStorage   = "bs"
+	volumePrefixNetworkStorage = "ns"
 )
 
 // ControllerServer implements the csi.ControllerServer interface.
