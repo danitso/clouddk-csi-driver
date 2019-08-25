@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -113,13 +114,43 @@ type NetworkStorage struct {
 }
 
 // createNetworkStorage creates new network storage of the given size.
-func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage, err error) {
+func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage, exists bool, err error) {
 	hostname := fmt.Sprintf(nsFormatHostname, name)
-	rootPassword := "p" + getRandomPassword(63)
+
+	// Determine if the server already exists to avoid duplicates.
+	res, err := clouddk.DoClientRequest(
+		ns.driver.Configuration.ClientSettings,
+		"GET",
+		fmt.Sprintf("cloudservers?hostname=%s", url.QueryEscape(hostname)),
+		new(bytes.Buffer),
+		[]int{200},
+		1,
+		1,
+	)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to determine if server exists (hostmame: %s)", hostname)
+
+		return nil, false, err
+	}
+
+	serverList := clouddk.ServerListBody{}
+	err = json.NewDecoder(res.Body).Decode(&serverList)
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	for _, v := range serverList {
+		if v.Hostname == hostname {
+			return nil, true, fmt.Errorf("Server already exists (hostname: %s)", hostname)
+		}
+	}
 
 	// Create a new storage server of the given size.
 	debugCloudAction(rtNetworkStorage, "Creating server (hostname: %s)", hostname)
 
+	rootPassword := "p" + getRandomPassword(63)
 	body := clouddk.ServerCreateBody{
 		Hostname:            hostname,
 		Label:               hostname,
@@ -133,22 +164,22 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 	err = json.NewEncoder(reqBody).Encode(body)
 
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	res, err := clouddk.DoClientRequest(d.Configuration.ClientSettings, "POST", "cloudservers", reqBody, []int{200}, 1, 1)
+	res, err = clouddk.DoClientRequest(d.Configuration.ClientSettings, "POST", "cloudservers", reqBody, []int{200}, 1, 1)
 
 	if err != nil {
 		debugCloudAction(rtNetworkStorage, "Failed to create server (hostname: %s)", hostname)
 
-		return nil, err
+		return nil, false, err
 	}
 
 	server := clouddk.ServerBody{}
 	err = json.NewDecoder(res.Body).Decode(&server)
 
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	ns = &NetworkStorage{
@@ -164,7 +195,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 		ns.Delete()
 
-		return nil, fmt.Errorf("No network interfaces available (id: %s)", ns.ID)
+		return nil, false, fmt.Errorf("No network interfaces available (id: %s)", ns.ID)
 	}
 
 	ns.IP = server.NetworkInterfaces[0].IPAddresses[0].Address
@@ -177,7 +208,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 		ns.Delete()
 
-		return nil, err
+		return nil, false, err
 	}
 
 	// Wait for the server to become ready by testing SSH connectivity.
@@ -219,7 +250,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 		ns.Delete()
 
-		return nil, err
+		return nil, false, err
 	}
 
 	defer sshClient.Close()
@@ -232,7 +263,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 		ns.Delete()
 
-		return nil, err
+		return nil, false, err
 	}
 
 	defer sftpClient.Close()
@@ -245,7 +276,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 		ns.Delete()
 
-		return nil, err
+		return nil, false, err
 	}
 
 	err = ns.CreateFile(sftpClient, nsPathBootstrapScript, bytes.NewBufferString(strings.ReplaceAll(nsBootstrapScript, "\r", "")))
@@ -255,7 +286,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 		ns.Delete()
 
-		return nil, err
+		return nil, false, err
 	}
 
 	err = ns.CreateFile(sftpClient, nsPathMountScript, bytes.NewBufferString(strings.ReplaceAll(nsMountScript, "\r", "")))
@@ -265,7 +296,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 		ns.Delete()
 
-		return nil, err
+		return nil, false, err
 	}
 
 	err = ns.CreateFile(sftpClient, nsPathPublicKey, bytes.NewBufferString(strings.ReplaceAll(ns.driver.Configuration.PublicKey, "\r", "")))
@@ -275,7 +306,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 		ns.Delete()
 
-		return nil, err
+		return nil, false, err
 	}
 
 	// Create a new SSH session and execute the bootstrap script.
@@ -286,7 +317,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 		ns.Delete()
 
-		return nil, err
+		return nil, false, err
 	}
 
 	defer sshSession.Close()
@@ -300,7 +331,7 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 
 		ns.Delete()
 
-		return nil, err
+		return nil, false, err
 	}
 
 	// Create the data disk.
@@ -309,10 +340,10 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 	if err != nil {
 		ns.Delete()
 
-		return nil, err
+		return nil, false, err
 	}
 
-	return ns, nil
+	return ns, false, nil
 }
 
 // loadNetworkStorage initializes the network storage handler for the given volume.

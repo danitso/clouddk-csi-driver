@@ -149,9 +149,13 @@ func (cs *ControllerServer) CreateVolumeBlockStorage(ctx context.Context, req *c
 
 // CreateVolumeNetworkStorage creates new network storage from the given request. The function is idempotent.
 func (cs *ControllerServer) CreateVolumeNetworkStorage(ctx context.Context, req *csi.CreateVolumeRequest, size int) (*csi.CreateVolumeResponse, error) {
-	ns, err := createNetworkStorage(cs.driver, req.Name, size)
+	ns, exists, err := createNetworkStorage(cs.driver, req.Name, size)
 
 	if err != nil {
+		if exists {
+			return nil, status.Error(codes.AlreadyExists, "CreateVolume: The volume already exists")
+		}
+
 		return nil, status.Error(codes.Internal, "CreateVolume: "+err.Error())
 	}
 
