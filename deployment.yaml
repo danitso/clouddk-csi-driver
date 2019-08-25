@@ -262,3 +262,82 @@ spec:
       volumes:
         - name: socket-dir
           emptyDir:
+---
+# -------------------------------------------------------------------
+# DEPLOYMENT: CSI NODE DRIVER
+# -------------------------------------------------------------------
+kind: DaemonSet
+apiVersion: apps/v1beta2
+metadata:
+  name: csi-node
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: csi-node
+  template:
+    metadata:
+      labels:
+        app: csi-node
+    spec:
+      priorityClassName: system-node-critical
+      hostNetwork: true
+      containers:
+        - name: csi-node-driver-registrar
+          image: quay.io/k8scsi/csi-node-driver-registrar:v1.1.0
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "rm -rf /registration/csi.cloud.dk /registration/csi.cloud.dk-reg.sock"]
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: DRIVER_REG_SOCK_PATH
+              value: /var/lib/kubelet/plugins/csi.cloud.dk/csi.sock
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi/
+            - name: registration-dir
+              mountPath: /registration/
+        - name: csi-clouddk-driver
+          image: docker.io/danitso/clouddk-csi-driver:latest
+          imagePullPolicy: "Always"
+          envFrom:
+          - secretRef:
+              name: clouddk-csi-driver-config
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
+            allowPrivilegeEscalation: true
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: pods-mount-dir
+              mountPath: /var/lib/kubelet
+              mountPropagation: "Bidirectional"
+            - name: device-dir
+              mountPath: /dev
+      volumes:
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry/
+            type: DirectoryOrCreate
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/csi.cloud.dk
+            type: DirectoryOrCreate
+        - name: pods-mount-dir
+          hostPath:
+            path: /var/lib/kubelet
+            type: Directory
+        - name: device-dir
+          hostPath:
+            path: /dev
