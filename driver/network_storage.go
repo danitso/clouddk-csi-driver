@@ -9,13 +9,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/MakeNowJust/heredoc"
 	"github.com/danitso/terraform-provider-clouddk/clouddk"
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 )
 
 const (
+	nsDiskLabel           = "k8s-network-storage"
 	nsFormatHostname      = "k8s-network-storage-%s"
 	nsPathAPTAutoConf     = "/etc/apt/apt.conf.d/00auto-conf"
 	nsPathBootstrapScript = "/tmp/clouddk_network_storage_bootstrap.sh"
@@ -62,7 +67,7 @@ var (
 		apt-get -qq upgrade -y
 		apt-get -qq dist-upgrade -y
 
-		# Install some additional packages including the NFS server.
+		# Install some additional packages including the NFS kernel server.
 		apt-get -qq install -y \
 			apt-transport-https \
 			ca-certificates \
@@ -76,6 +81,7 @@ type NetworkStorage struct {
 	driver *Driver
 
 	ID   string
+	IP   string
 	Size int
 }
 
@@ -123,17 +129,6 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 		Size: size,
 	}
 
-	// Wait for pending and running transactions to end.
-	err = ns.Wait()
-
-	if err != nil {
-		debugCloudAction(rtNetworkStorage, "Failed to wait for pending and running transactions to end (id: %s)", ns.ID)
-
-		ns.Delete()
-
-		return nil, err
-	}
-
 	// Ensure that the server has at least a single network interface.
 	debugCloudAction(rtNetworkStorage, "Checking network interfaces (id: %s)", ns.ID)
 
@@ -145,19 +140,280 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 		return nil, fmt.Errorf("No network interfaces available (id: %s)", ns.ID)
 	}
 
-	// Create a data disk of the specified size.
-	err = ns.EnsureDisk(size)
+	ns.IP = server.NetworkInterfaces[0].IPAddresses[0].Address
+
+	// Wait for pending and running transactions to end.
+	err = ns.Wait()
 
 	if err != nil {
-		debugCloudAction(rtNetworkStorage, "Failed to initialize server due to disk creation error (id: %s)", ns.ID)
+		debugCloudAction(rtNetworkStorage, "Failed to initialize server due to active transactions (id: %s)", ns.ID)
+
+		ns.Delete()
+
+		return nil, err
 	}
 
-	return nil, errors.New("Not implemented")
+	// Wait for the server to become ready by testing SSH connectivity.
+	debugCloudAction(rtNetworkStorage, "Waiting for server to accept SSH connections (id: %s)", ns.ID)
+
+	var sshClient *ssh.Client
+
+	sshConfig := &ssh.ClientConfig{
+		User:            "root",
+		Auth:            []ssh.AuthMethod{ssh.Password(rootPassword)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	timeDelay := int64(10)
+	timeMax := float64(300)
+	timeStart := time.Now()
+	timeElapsed := timeStart.Sub(timeStart)
+
+	err = nil
+
+	for timeElapsed.Seconds() < timeMax {
+		if int64(timeElapsed.Seconds())%timeDelay == 0 {
+			sshClient, err = ssh.Dial("tcp", ns.IP+":22", sshConfig)
+
+			if err == nil {
+				break
+			}
+
+			time.Sleep(1 * time.Second)
+		}
+
+		time.Sleep(200 * time.Millisecond)
+
+		timeElapsed = time.Now().Sub(timeStart)
+	}
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to create server due to SSH timeout (id: %s)", ns.ID)
+
+		ns.Delete()
+
+		return nil, err
+	}
+
+	defer sshClient.Close()
+
+	// Create a new SFTP client.
+	sftpClient, err := ns.CreateSFTPClient(sshClient)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to initialize server due to SFTP errors (id: %s)", ns.ID)
+
+		ns.Delete()
+
+		return nil, err
+	}
+
+	defer sftpClient.Close()
+
+	// Upload files and scripts to the server.
+	err = ns.CreateFile(sftpClient, nsPathAPTAutoConf, bytes.NewBufferString(strings.ReplaceAll(nsAPTAutoConf, "\r", "")))
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to initialize server because file '%s' could not be created (id: %s)", nsPathAPTAutoConf, ns.ID)
+
+		ns.Delete()
+
+		return nil, err
+	}
+
+	err = ns.CreateFile(sftpClient, nsPathBootstrapScript, bytes.NewBufferString(strings.ReplaceAll(nsBootstrapScript, "\r", "")))
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to initialize server because file '%s' could not be created (id: %s)", nsPathBootstrapScript, ns.ID)
+
+		ns.Delete()
+
+		return nil, err
+	}
+
+	err = ns.CreateFile(sftpClient, nsPathPublicKey, bytes.NewBufferString(strings.ReplaceAll(ns.driver.Configuration.PublicKey, "\r", "")))
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to initialize server because file '%s' could not be created (id: %s)", nsPathPublicKey, ns.ID)
+
+		ns.Delete()
+
+		return nil, err
+	}
+
+	// Create a new SSH session and execute the bootstrap script.
+	sshSession, err := ns.CreateSSHSession(sshClient)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to initialize server due to SSH session errors (id: %s)", ns.ID)
+
+		ns.Delete()
+
+		return nil, err
+	}
+
+	defer sshSession.Close()
+
+	debugCloudAction(rtNetworkStorage, "Bootstrapping server (id: %s)", ns.ID)
+
+	output, err := sshSession.CombinedOutput("/bin/bash " + nsPathBootstrapScript)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to bootstrap server (id: %s) - Output: %s - Error: %s", ns.ID, string(output), err.Error())
+
+		ns.Delete()
+
+		return nil, err
+	}
+
+	return ns, nil
 }
 
 // loadNetworkStorage initializes the network storage handler for the given volume.
 func loadNetworkStorage(d *Driver, id string) (ns *NetworkStorage, notFound bool, err error) {
 	return nil, false, errors.New("Not implemented")
+}
+
+// CreateFile creates a file on the server.
+func (ns *NetworkStorage) CreateFile(sftpClient *sftp.Client, filePath string, fileContents *bytes.Buffer) error {
+	debugCloudAction(rtNetworkStorage, "Creating file '%s' (id: %s)", filePath, ns.ID)
+
+	newSFTPClient := sftpClient
+
+	if newSFTPClient == nil {
+		sshClient, err := ns.CreateSSHClient()
+
+		if err != nil {
+			return err
+		}
+
+		defer sshClient.Close()
+
+		newSFTPClient, err = ns.CreateSFTPClient(sshClient)
+
+		if err != nil {
+			return err
+		}
+
+		defer newSFTPClient.Close()
+	}
+
+	dir := filepath.Dir(filePath)
+	err := newSFTPClient.MkdirAll(dir)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to create directory '%s' (id: %s)", dir, ns.ID)
+
+		return err
+	}
+
+	remoteFile, err := newSFTPClient.Create(filePath)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to create file '%s' (id: %s)", filePath, ns.ID)
+
+		return err
+	}
+
+	defer remoteFile.Close()
+
+	_, err = remoteFile.ReadFrom(fileContents)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to write file '%s' (id: %s)", filePath, ns.ID)
+
+		return err
+	}
+
+	return nil
+}
+
+// CreateSFTPClient creates an SFTP client.
+func (ns *NetworkStorage) CreateSFTPClient(sshClient *ssh.Client) (*sftp.Client, error) {
+	debugCloudAction(rtNetworkStorage, "Creating SFTP client (id: %s)", ns.ID)
+
+	var err error
+
+	newSSHClient := sshClient
+
+	if newSSHClient == nil {
+		newSSHClient, err = ns.CreateSSHClient()
+
+		if err != nil {
+			debugCloudAction(rtNetworkStorage, "Failed to create SFTP client due to SSH errors (id: %s)", ns.ID)
+
+			return nil, err
+		}
+	}
+
+	sftpClient, err := sftp.NewClient(newSSHClient)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to create SFTP client (id: %s)", ns.ID)
+
+		return nil, err
+	}
+
+	return sftpClient, nil
+}
+
+// CreateSSHClient establishes a new SSH connection to the server.
+func (ns *NetworkStorage) CreateSSHClient() (*ssh.Client, error) {
+	debugCloudAction(rtNetworkStorage, "Creating SSH client (id: %s)", ns.ID)
+
+	sshPrivateKeyBuffer := bytes.NewBufferString(ns.driver.Configuration.PrivateKey)
+	sshPrivateKeySigner, err := ssh.ParsePrivateKey(sshPrivateKeyBuffer.Bytes())
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to create SSH client due to private key errors (id: %s)", ns.ID)
+
+		return nil, err
+	}
+
+	sshConfig := &ssh.ClientConfig{
+		User:            "root",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(sshPrivateKeySigner)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	sshClient, err := ssh.Dial("tcp", ns.IP+":22", sshConfig)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to create SSH client (id: %s)", ns.ID)
+
+		return nil, err
+	}
+
+	return sshClient, nil
+}
+
+// CreateSSHSession creates an SSH session.
+func (ns *NetworkStorage) CreateSSHSession(sshClient *ssh.Client) (*ssh.Session, error) {
+	debugCloudAction(rtNetworkStorage, "Creating SSH session (id: %s)", ns.ID)
+
+	var err error
+
+	newSSHClient := sshClient
+
+	if newSSHClient == nil {
+		newSSHClient, err = ns.CreateSSHClient()
+
+		if err != nil {
+			debugCloudAction(rtNetworkStorage, "Failed to create SSH session due to SSH errors (id: %s)", ns.ID)
+
+			return nil, err
+		}
+	}
+
+	sshSession, err := newSSHClient.NewSession()
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to create SSH session (id: %s)", ns.ID)
+
+		return nil, err
+	}
+
+	return sshSession, nil
 }
 
 // Delete deletes the network storage.
@@ -187,11 +443,96 @@ func (ns *NetworkStorage) Delete() (err error) {
 func (ns *NetworkStorage) EnsureDisk(size int) (err error) {
 	debugCloudAction(rtNetworkStorage, "Ensuring disk (id: %s - size: %d GB)", ns.ID, size)
 
-	return errors.New("Not implemented")
+	// Wait for all transactions to end before proceeding.
+	err = ns.Wait()
+
+	if err != nil {
+		return err
+	}
+
+	// Retrieve the list of disks attached to the server and determine if a data disk is present.
+	res, err := clouddk.DoClientRequest(
+		ns.driver.Configuration.ClientSettings,
+		"GET",
+		fmt.Sprintf("cloudservers/%s/disks", ns.ID),
+		new(bytes.Buffer),
+		[]int{200},
+		1,
+		1,
+	)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to retrieve list of disks (id: %s)", ns.ID)
+
+		return err
+	}
+
+	diskList := clouddk.DiskListBody{}
+	err = json.NewDecoder(res.Body).Decode(&diskList)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to decode list of disks (id: %s)", ns.ID)
+
+		return err
+	}
+
+	for _, v := range diskList {
+		if v.Label == nsDiskLabel {
+			return nil
+		}
+	}
+
+	// Create a new data disk and wait for it to become attached.
+	debugCloudAction(rtNetworkStorage, "Creating data disk (id: %s - size: %d GB)", ns.ID, size)
+
+	createBody := clouddk.DiskCreateBody{
+		Label: nsDiskLabel,
+		Size:  clouddk.CustomInt(size),
+	}
+
+	reqBody := new(bytes.Buffer)
+	err = json.NewEncoder(reqBody).Encode(createBody)
+
+	if err != nil {
+		return err
+	}
+
+	res, err = clouddk.DoClientRequest(
+		ns.driver.Configuration.ClientSettings,
+		"POST",
+		fmt.Sprintf("cloudservers/%s/disks", ns.ID),
+		reqBody,
+		[]int{200},
+		1,
+		1,
+	)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to create data disk (id: %s)", ns.ID)
+
+		return err
+	}
+
+	disk := clouddk.DiskBody{}
+	err = json.NewDecoder(res.Body).Decode(&disk)
+
+	if err != nil {
+		return err
+	}
+
+	err = ns.Wait()
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Wait waits for any pending and running transactions to end.
 func (ns *NetworkStorage) Wait() (err error) {
+	debugCloudAction(rtNetworkStorage, "Waiting for transactions to end (id: %s)", ns.ID)
+
 	timeDelay := int64(10)
 	timeMax := float64(600)
 	timeStart := time.Now()
@@ -212,7 +553,7 @@ func (ns *NetworkStorage) Wait() (err error) {
 			)
 
 			if err != nil {
-				debugCloudAction(rtNetworkStorage, "Failed to retrieve logs (id: %s)", ns.ID)
+				debugCloudAction(rtNetworkStorage, "Failed to retrieve list of transactions (id: %s)", ns.ID)
 
 				return err
 			}
@@ -248,6 +589,8 @@ func (ns *NetworkStorage) Wait() (err error) {
 	}
 
 	if wait {
+		debugCloudAction(rtNetworkStorage, "Timeout while waiting for transactions to end (id: %s)", ns.ID)
+
 		return errors.New("Timeout while waiting for transactions to end")
 	}
 
