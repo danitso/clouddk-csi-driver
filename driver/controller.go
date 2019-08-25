@@ -74,7 +74,7 @@ func (cs *ControllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 
-		err = ns.AddNode(req.NodeId)
+		err = ns.Publish(req.NodeId)
 
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
@@ -117,7 +117,7 @@ func (cs *ControllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 
-		err = ns.RemoveNode(req.NodeId)
+		err = ns.Unpublish(req.NodeId)
 
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())

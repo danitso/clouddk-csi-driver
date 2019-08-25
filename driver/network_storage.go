@@ -504,80 +504,6 @@ func loadNetworkStorage(d *Driver, id string) (ns *NetworkStorage, notFound bool
 	return ns, false, nil
 }
 
-// AddNode grants a node access to the network storage.
-func (ns *NetworkStorage) AddNode(nodeID string) error {
-	server, _, err := getServerByHostname(ns.driver.Configuration.ClientSettings, nodeID)
-
-	if err != nil {
-		return err
-	}
-
-	if len(server.NetworkInterfaces) == 0 {
-		return fmt.Errorf("Node '%s' has no network interfaces", nodeID)
-	}
-
-	// Grant the node access to the network storage.
-	sshClient, err := ns.CreateSSHClient()
-
-	if err != nil {
-		return err
-	}
-
-	defer sshClient.Close()
-
-	sftpClient, err := ns.CreateSFTPClient(sshClient)
-
-	if err != nil {
-		return err
-	}
-
-	defer sftpClient.Close()
-
-	nodeNetworkScriptPath := fmt.Sprintf(nsFormatNodeNetworkScriptPath, nodeID)
-
-	err = ns.CreateFile(sftpClient, nodeNetworkScriptPath, bytes.NewBufferString(
-		"#!/bin/sh\n"+
-			"ipset add nodes "+server.NetworkInterfaces[0].IPAddresses[0].Address+"\n",
-	))
-
-	if err != nil {
-		debugCloudAction(rtNetworkStorage, "Failed to grant access from node '%s' due to script creation errors (id: %s)", ns.ID)
-
-		return err
-	}
-
-	sshSession, err := ns.CreateSSHSession(sshClient)
-
-	if err != nil {
-		debugCloudAction(rtNetworkStorage, "Failed to grant access from node '%s' due to SSH session errors (id: %s)", ns.ID)
-
-		return err
-	}
-
-	defer sshSession.Close()
-
-	output, err := sshSession.CombinedOutput(
-		"chmod +x " + nodeNetworkScriptPath +
-			"&& " + nodeNetworkScriptPath +
-			"&& echo '/mnt/data\t" + server.NetworkInterfaces[0].IPAddresses[0].Address + "(rw,sync,no_subtree_check)' >> /etc/exports" +
-			"&& systemctl restart nfs-kernel-server",
-	)
-
-	if err != nil {
-		debugCloudAction(
-			rtNetworkStorage,
-			"Failed to grant access from node '%s' due to script errors (id: %s) - Output: %s - Error: %s",
-			ns.ID,
-			string(output),
-			err.Error(),
-		)
-
-		return err
-	}
-
-	return nil
-}
-
 // CreateFile creates a file on the server.
 func (ns *NetworkStorage) CreateFile(sftpClient *sftp.Client, filePath string, fileContents *bytes.Buffer) error {
 	debugCloudAction(rtNetworkStorage, "Creating file '%s' (id: %s)", filePath, ns.ID)
@@ -865,8 +791,87 @@ func (ns *NetworkStorage) Mount(path string) (err error) {
 	return errors.New("Not implemented")
 }
 
-// RemoveNode revokes a node's access to the network storage.
-func (ns *NetworkStorage) RemoveNode(nodeID string) error {
+// Publish grants a node access to the network storage.
+func (ns *NetworkStorage) Publish(nodeID string) error {
+	server, _, err := getServerByHostname(ns.driver.Configuration.ClientSettings, nodeID)
+
+	if err != nil {
+		return err
+	}
+
+	if len(server.NetworkInterfaces) == 0 {
+		return fmt.Errorf("Node '%s' has no network interfaces", nodeID)
+	}
+
+	// Grant the node access to the network storage.
+	sshClient, err := ns.CreateSSHClient()
+
+	if err != nil {
+		return err
+	}
+
+	defer sshClient.Close()
+
+	sftpClient, err := ns.CreateSFTPClient(sshClient)
+
+	if err != nil {
+		return err
+	}
+
+	defer sftpClient.Close()
+
+	nodeNetworkScriptPath := fmt.Sprintf(nsFormatNodeNetworkScriptPath, nodeID)
+
+	err = ns.CreateFile(sftpClient, nodeNetworkScriptPath, bytes.NewBufferString(
+		"#!/bin/sh\n"+
+			"ipset add nodes "+server.NetworkInterfaces[0].IPAddresses[0].Address+"\n",
+	))
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to grant access from node '%s' due to script creation errors (id: %s)", ns.ID)
+
+		return err
+	}
+
+	sshSession, err := ns.CreateSSHSession(sshClient)
+
+	if err != nil {
+		debugCloudAction(rtNetworkStorage, "Failed to grant access from node '%s' due to SSH session errors (id: %s)", ns.ID)
+
+		return err
+	}
+
+	defer sshSession.Close()
+
+	output, err := sshSession.CombinedOutput(
+		"chmod +x " + nodeNetworkScriptPath +
+			"&& " + nodeNetworkScriptPath +
+			"&& echo '/mnt/data\t" + server.NetworkInterfaces[0].IPAddresses[0].Address + "(rw,sync,no_subtree_check)' >> /etc/exports" +
+			"&& systemctl restart nfs-kernel-server",
+	)
+
+	if err != nil {
+		debugCloudAction(
+			rtNetworkStorage,
+			"Failed to grant access from node '%s' due to script errors (id: %s) - Output: %s - Error: %s",
+			ns.ID,
+			string(output),
+			err.Error(),
+		)
+
+		return err
+	}
+
+	return nil
+}
+
+// Unmount unmounts the network storage from the specified path.
+func (ns *NetworkStorage) Unmount(path string) (err error) {
+	return errors.New("Not implemented")
+}
+
+// Unpublish revokes a node's access to the network storage.
+func (ns *NetworkStorage) Unpublish(nodeID string) error {
 	server, _, err := getServerByHostname(ns.driver.Configuration.ClientSettings, nodeID)
 
 	if err != nil {
@@ -916,11 +921,6 @@ func (ns *NetworkStorage) RemoveNode(nodeID string) error {
 	}
 
 	return nil
-}
-
-// Unmount unmounts the network storage from the specified path.
-func (ns *NetworkStorage) Unmount(path string) (err error) {
-	return errors.New("Not implemented")
 }
 
 // Wait waits for any pending and running transactions to end.
