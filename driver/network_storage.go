@@ -303,6 +303,15 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 		return nil, err
 	}
 
+	// Create the data disk.
+	err = ns.EnsureDisk(size)
+
+	if err != nil {
+		ns.Delete()
+
+		return nil, err
+	}
+
 	return ns, nil
 }
 
