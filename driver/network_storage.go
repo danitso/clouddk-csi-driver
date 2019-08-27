@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -788,7 +790,40 @@ func (ns *NetworkStorage) EnsureDisk(size int) (err error) {
 
 // Mount mounts the network storage at the specified path.
 func (ns *NetworkStorage) Mount(path string) (err error) {
-	return errors.New("Not implemented")
+	err = os.MkdirAll(path, 0750)
+
+	if err != nil {
+		return err
+	}
+
+	cmd := "mount"
+	args := []string{}
+	opts := []string{
+		"nfsvers=4.1",
+		"actimeo=2",
+		"hard",
+		"intr",
+		"noacl",
+		"noatime",
+		"nodiratime",
+		"retrans=2",
+		"timeo=600",
+		"rsize=32768",
+		"wsize=32768",
+	}
+
+	args = append(args, "-t", "nfs4")
+	args = append(args, "-o", strings.Join(opts, ","))
+	args = append(args, ns.IP+":/")
+	args = append(args, path)
+
+	_, err = exec.Command(cmd, args...).CombinedOutput()
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Publish grants a node access to the network storage.
@@ -867,7 +902,22 @@ func (ns *NetworkStorage) Publish(nodeID string) error {
 
 // Unmount unmounts the network storage from the specified path.
 func (ns *NetworkStorage) Unmount(path string) (err error) {
-	return errors.New("Not implemented")
+	cmd := "umount"
+	args := []string{path}
+
+	_, err = exec.Command(cmd, args...).CombinedOutput()
+
+	if err != nil {
+		return err
+	}
+
+	err = os.RemoveAll(path)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Unpublish revokes a node's access to the network storage.
