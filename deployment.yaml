@@ -135,7 +135,6 @@ spec:
             - "--retry-interval-max=5m"
             - "--retry-interval-start=1m"
             - "--timeout=1m"
-            - "--worker-threads=8"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
