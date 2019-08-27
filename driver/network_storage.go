@@ -164,7 +164,7 @@ var (
 
 		# Ensure that the device is mounted.
 		if ! mountpoint -q "$DATA_DIRECTORY"; then
-			if [ "$(blkid -s TYPE -o value "$DATA_DEVICE")" == "" ]; then
+			if [ "$(blkid -s TYPE -o value "$DATA_DEVICE")" = "" ]; then
 				mkfs -t ext4 "$DATA_DEVICE"
 			fi
 
