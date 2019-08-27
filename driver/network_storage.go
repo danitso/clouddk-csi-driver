@@ -169,10 +169,7 @@ var (
 			fi
 
 			if ! grep -q "$DATA_DIRECTORY" /etc/fstab; then
-				data_device_uuid="$(blkid -s UUID -o value "$DATA_DEVICE")"
-
-				sed --in-place "/${DATA_DEVICE//'/'/'\/'}/d" /etc/fstab
-				echo "UUID=${data_device_uuid} ${DATA_DIRECTORY} ext4 defaults,noatime,nodiratime,nofail 0 2" >> /etc/fstab
+				echo "UUID=$(blkid -s UUID -o value "$DATA_DEVICE") ${DATA_DIRECTORY} ext4 defaults,noatime,nodiratime,nofail 0 2" >> /etc/fstab
 			fi
 
 			mkdir -p "$DATA_DIRECTORY"
