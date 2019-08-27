@@ -266,8 +266,9 @@ func createNetworkStorage(d *Driver, name string, size int) (ns *NetworkStorage,
 	}
 
 	ns = &NetworkStorage{
-		ID:   server.Identifier,
-		Size: size,
+		driver: ns.driver,
+		ID:     server.Identifier,
+		Size:   size,
 	}
 
 	// Ensure that the server has at least a single network interface.
@@ -491,8 +492,9 @@ func loadNetworkStorage(d *Driver, id string) (ns *NetworkStorage, notFound bool
 	}
 
 	ns = &NetworkStorage{
-		ID: server.Identifier,
-		IP: server.NetworkInterfaces[0].IPAddresses[0].Address,
+		driver: ns.driver,
+		ID:     server.Identifier,
+		IP:     server.NetworkInterfaces[0].IPAddresses[0].Address,
 	}
 
 	for _, v := range server.Disks {
