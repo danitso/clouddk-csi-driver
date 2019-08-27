@@ -104,7 +104,7 @@ func NewDriver(c *Configuration) (*Driver, error) {
 
 // Run starts the CSI driver.
 func (d *Driver) Run() {
-	log.Printf("Running CSI driver '%s' version %s", DriverName, DriverVersion)
+	log.Printf("Starting CSI driver '%s' version %s", DriverName, DriverVersion)
 
 	d.Driver = csicommon.NewCSIDriver(DriverName, DriverVersion, d.Configuration.NodeID)
 
