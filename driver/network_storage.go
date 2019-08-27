@@ -807,7 +807,7 @@ func (ns *NetworkStorage) Mount(path string) (err error) {
 		"noatime",
 		"nodiratime",
 		"retrans=2",
-		"timeo=600",
+		"timeo=300",
 		"rsize=32768",
 		"wsize=32768",
 	}

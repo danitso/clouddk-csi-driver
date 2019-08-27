@@ -6,6 +6,8 @@ package driver
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -64,7 +66,26 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	}
 
 	// Bind mount.
-	return nil, status.Error(codes.Unimplemented, "Not implemented")
+	err := os.MkdirAll(req.TargetPath, 0750)
+
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	cmd := "mount"
+	args := []string{
+		"--bind",
+		req.StagingTargetPath,
+		req.TargetPath,
+	}
+
+	_, err = exec.Command(cmd, args...).CombinedOutput()
+
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return &csi.NodePublishVolumeResponse{}, nil
 }
 
 // NodeStageVolume mounts the volume to a staging path on the node.
@@ -121,7 +142,22 @@ func (ns *NodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpu
 	}
 
 	// Unbind mount.
-	return nil, status.Error(codes.Unimplemented, "Not implemented")
+	cmd := "umount"
+	args := []string{req.TargetPath}
+
+	_, err := exec.Command(cmd, args...).CombinedOutput()
+
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	err = os.RemoveAll(req.TargetPath)
+
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
 // NodeUnstageVolume unstages the volume from the staging path.
