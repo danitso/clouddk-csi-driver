@@ -132,8 +132,8 @@ spec:
           args:
             - "--csi-address=$(ADDRESS)"
             - "--leader-election"
-            - "--retry-interval-max=300"
-            - "--retry-interval-start=30"
+            - "--retry-interval-max=5m"
+            - "--retry-interval-start=30s"
             - "--timeout=60"
             - "--worker-threads=8"
           env:
@@ -154,8 +154,8 @@ spec:
             - "--csi-address=$(ADDRESS)"
             - "--enable-leader-election"
             - "--leader-election-type=leases"
-            - "--retry-interval-max=300"
-            - "--retry-interval-start=30"
+            - "--retry-interval-max=5m"
+            - "--retry-interval-start=30s"
             - "--timeout=900"
             - "--worker-threads=8"
           env:
