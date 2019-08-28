@@ -807,8 +807,8 @@ func (ns *NetworkStorage) Mount(path string) (err error) {
 		"nodiratime",
 		"retrans=2",
 		"timeo=300",
-		"rsize=32768",
-		"wsize=32768",
+		"rsize=65536",
+		"wsize=65536",
 	}
 
 	args = append(args, "-t", "nfs4")
