@@ -79,11 +79,6 @@ var (
 		apt-get -qq upgrade -y
 		apt-get -qq dist-upgrade -y
 
-		# Apply the firewall rules for the NFS service.
-		export IFACE="eth0"
-
-		/etc/network/if-up.d/00-nfs-firewall-rules
-
 		# Install some additional packages including the NFS kernel server.
 		apt-get -qq install -y \
 			apt-transport-https \
@@ -118,6 +113,11 @@ var (
 
 		# Restart the NFS service.
 		systemctl restart nfs-kernel-server
+
+		# Apply the firewall rules for the NFS service.
+		export IFACE="eth0"
+
+		/etc/network/if-up.d/00-nfs-firewall-rules
 	`)
 	nsFirewallScript = heredoc.Doc(`
 		#!/bin/sh
@@ -813,7 +813,7 @@ func (ns *NetworkStorage) Mount(path string) (err error) {
 
 	args = append(args, "-t", "nfs4")
 	args = append(args, "-o", strings.Join(opts, ","))
-	args = append(args, ns.IP+":/")
+	args = append(args, ns.IP+":/mnt/data")
 	args = append(args, path)
 
 	_, err = exec.Command(cmd, args...).CombinedOutput()
