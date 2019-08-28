@@ -881,7 +881,7 @@ func (ns *NetworkStorage) Publish(nodeID string) error {
 		"chmod +x " + nodeNetworkScriptPath +
 			"&& " + nodeNetworkScriptPath +
 			"&& echo '/mnt/data\t" + server.NetworkInterfaces[0].IPAddresses[0].Address + "(rw,sync,no_subtree_check)' >> /etc/exports" +
-			"&& systemctl restart nfs-kernel-server",
+			"&& exportfs -ra",
 	)
 
 	if err != nil {
@@ -954,7 +954,8 @@ func (ns *NetworkStorage) Unpublish(nodeID string) error {
 	output, err := sshSession.CombinedOutput(
 		"rm -f " + nodeNetworkScriptPath +
 			"&& ipset del nodes " + server.NetworkInterfaces[0].IPAddresses[0].Address +
-			"&& sed -i '/" + server.NetworkInterfaces[0].IPAddresses[0].Address + "/d' /etc/exports",
+			"&& sed -i '/" + server.NetworkInterfaces[0].IPAddresses[0].Address + "/d' /etc/exports" +
+			"&& exportfs -ra",
 	)
 
 	if err != nil {
