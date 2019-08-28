@@ -14,7 +14,7 @@ To use CSI drivers, your Kubernetes cluster must allow privileged pods (i.e. --a
 
 ## Installation
 
-Follow these simple steps in order to install the controller:
+Follow these simple steps in order to install the driver:
 
 1. Ensure that `kubectl` is configured to reach the cluster
 
