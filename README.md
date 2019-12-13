@@ -1,3 +1,5 @@
+[![Build Status](https://api.travis-ci.com/danitso/clouddk-csi-driver.svg?branch=master)](https://travis-ci.com/danitso/clouddk-csi-driver)
+
 # Kubernetes CSI Driver for Cloud.dk
 
 `clouddk-csi-driver` is a Kubernetes Container Storage Interface ([CSI](https://kubernetes-csi.github.io/docs/)) Driver for [Cloud.dk](https://cloud.dk).
